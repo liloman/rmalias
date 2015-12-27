@@ -74,8 +74,13 @@ fi
 
 
 trashput() {
+# Uncomment for realpath > 8.13 (Ubuntu Precise)
 # local dir="$(realpath -Pe --relative-base="$PWD" "$1")" 
-local dir="$(realpath -Pe --relative-base="$PWD" "$1")" 
+#realpath in bash
+local dir="$1" len="${#1}"
+[[ ${dir:0:len} == $PWD ]] && dir="${dir/$PWD\//}"
+#end realpath
+
 local cmd="$TRASH_CMD"
 
 [[ $verbose = true ]] && cmd+=" --verbose"
