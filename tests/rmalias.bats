@@ -137,7 +137,7 @@ run $r -d dirempty
 [[ ! -e dirempty ]]
 }
 
-@test "rmalias -d not empty dir shows nothing" {
+@test "rmalias -d not empty dir shows not an empty dir" {
 mkdir -p 1/2
 run $r -d 1
 (( $status == 1 ))
@@ -146,70 +146,6 @@ run $r -d 1
 rm -rf 1/
 }
 
-#
-#
-# #t-slash.sh of coreutils
-# # make sure rmalias -p works on a directory specified with a trailing slash
-# @test "rmalias -p dir/ works" {
-# mkdir a
-# $r -p a/
-# }
-# #
-# @test "rmalias -p with not empty dirs fails" {
-# mkdir -p a/b/c
-# touch a/b/c/file
-# run $r -p a/b/c
-# rm -rf a/
-# (( $status == 1 ))
-# [[ ${lines[0]} = "rmalias: failed to remove 'a/b/c': Directory not empty" ]]
-# }
-#
-# @test "rmalias -p with not empty dirs fails until not empty found" {
-# mkdir -p a/{b1,b2}/c
-# touch a/{b1,b2}/file
-# run $r -p a/{b1,b2}/c
-# (( $status == 1 ))
-# [[ ${lines[0]} = "rmalias: failed to remove directory 'a/b1': Directory not empty" ]]
-# [[ ${lines[1]} = "rmalias: failed to remove directory 'a/b2': Directory not empty" ]]
-# [[ ! -d a/b1/c ]]
-# [[ -e a/b1/file ]]
-# [[ -e a/b2/file ]]
-# rm -rf a/
-# }
-#
-# @test "rmalias -p with 3 non empty dirs fails but remove them" {
-# mkdir -p a/{b1,b2,b3}/c
-# run $r -p a/*/c
-# (( $status == 1 ))
-# [[ ${lines[0]} = "rmalias: failed to remove directory 'a': Directory not empty" ]]
-# [[ ${lines[1]} = "rmalias: failed to remove directory 'a': Directory not empty" ]]
-# [[ ${lines[2]} = "" ]]
-# [[ ! -d a ]]
-# }
-#
-# @test "rmalias -p with 5 non empty dirs fails but remove them finally" {
-# mkdir -p a/{b1,b2,b3,b4,b5}/c
-# run $r -p a/*/c
-# (( $status == 1 ))
-# [[ ${lines[0]} = "rmalias: failed to remove directory 'a': Directory not empty" ]]
-# [[ ${lines[1]} = "rmalias: failed to remove directory 'a': Directory not empty" ]]
-# [[ ${lines[2]} = "rmalias: failed to remove directory 'a': Directory not empty" ]]
-# [[ ${lines[3]} = "rmalias: failed to remove directory 'a': Directory not empty" ]]
-# [[ ${lines[4]} = "" ]]
-# [[ ! -d a ]]
-# }
-#
-# #For unwritable directory 'd', 'rmalias -p would emit diagnostics but would not fail
-# @test "rmalias with multiple empty dirs with no w permission on last remove them" {
-# mkdir -p d/e/f
-# chmod a-w d/e/f
-# run $r d/e/f
-# (( $status == 0 ))
-# [[ ${lines[0]} = "" ]]
-# [[ ! -d d/e/f ]]
-# rm -rf d
-# }
-#
 # #
 # #fail-perm.sh of coreutils
 # #For unwritable directory 'd', 'rmalias -p would emit diagnostics but would not fail
@@ -225,12 +161,12 @@ rm -rf 1/
 # rm -rf d
 # }
 #
-# #fail-perm.sh of coreutils
-# #For unwritable directory 'd', 'rmalias -p would emit diagnostics but would not fail
-# @test "rmalias -p with multiple empty dirs with no permission fails but remove them v2" {
+#fail-perm.sh of rmdir coreutils
+#For unwritable directory 'd', 'rmalias -p would emit diagnostics but would not fail
+# @test "rmalias -r with multiple empty dirs with no permission fails but remove them v2" {
 # mkdir -p d/e/f
 # chmod a-w d
-# run $r -p d d/e/f
+# run $r -r d d/e/f
 # (( $status == 1 ))
 # [[ ${lines[0]} = "rmalias: failed to remove 'd': Directory not empty" ]]
 # [[ ${lines[1]} = "rmalias: failed to remove directory 'd/e': Permission denied" ]]
@@ -239,68 +175,71 @@ rm -rf 1/
 # chmod a+w d
 # rm -rf d
 # }
-#
-# #ignore.sh of coreutils
-# # make sure rmalias's --ignore-fail-on-non-empty option works
-# @test "rmalias -p --ignore-fail-on-non-empty with multiple empty dirs remove them" {
-# mkdir -p a/{b1,b2,b3}/c
-# run $r -p --ignore-fail-on-non-empty a/{b1,b2}/c
-# (( $status == 0 ))
-# [[ ${lines[0]} = "" ]]
-# [[ ! -d a/b2 ]]
-# [[ -d a/b3/c ]]
+
+
+# #############
+# #  SPACES   #
+# #############
+
+
+#ignore.sh of rmdir coreutils with spaces
+# make sure rmalias's --ignore-fail-on-non-empty option works
+@test "rmalias --recursive with spaced empty dirs remove them" {
+mkdir -p a/{b\ 1,b\ 2}/c
+run $r --recursive a/
+(( $status == 0 ))
+[[ ${lines[0]} = "" ]]
+[[ ! -d a ]]
+rm -rf a/
+}
+
+
+#ignore.sh of rmdir coreutils with spaces and glob
+# make sure rmalias's --ignore-fail-on-non-empty option works
+@test "rmalias -R with spaced globbed empty dirs remove them" {
+mkdir -p a/{b\ 1,b\ 2,b\ 3}/c
+run $r -R a/*
+(( $status == 0 ))
+[[ ${lines[0]} = "" ]]
+[[ ! -d a/b\ 3/c ]]
+}
+
+
+
+###########################################################################
+#                        Coreutils rm tests                               #
+#  http://git.savannah.gnu.org/gitweb/?p=coreutils.git;a=tree;f=tests/rm  #
+###########################################################################
+
+
+#cycle.sh of rm coreutils
+# @test "rmalias cycle.sh" {
+# mkdir -p a/b
+# touch a/b/file
+# chmod u-w a/b
+# run $r -rf a a 2>&1 
+# (( $status == 1 ))
+# [[ ${lines[0]} = "rmalias: cannot remove 'a/b/file': Permission denied" ]]
+# [[ ${lines[1]} = "rmalias: cannot remove 'a/b/file': Permission denied" ]]
+# [[ -d a ]]
 # rm -rf a/
 # }
-#
-# @test "rmalias -p --ignore-fail-on-non-empty with a dir not empty doesnt remove the dir" {
-# mkdir -p a/b1
-# run $r -p --ignore-fail-on-non-empty a/
-# (( $status == 0 ))
-# [[ ${lines[0]} = "" ]]
-# [[ -d a/b1 ]]
-# rm -rf a/
-# }
-#
-#
-# @test "rmalias -p --ignore-fail-on-non-empty with some dirs not empty doesnt remove the dir" {
-# mkdir -p a/{b1,b2,b3}/c
-# touch a/b2/c/file
-# run $r -p --ignore-fail-on-non-empty a/*/c
-# (( $status == 0 ))
-# [[ ${lines[0]} = "" ]]
-# [[ -e a/b2/c/file ]]
-# rm -rf a/
-# }
-#
-# #
-# # #############
-# # #  SPACES   #
-# # #############
-# #
-#
-# #ignore.sh of coreutils with spaces
-# # make sure rmalias's --ignore-fail-on-non-empty option works
-# @test "rmalias -p --ignore-fail-on-non-empty with spaced empty dirs remove them" {
-# mkdir -p a/{b\ 1,b\ 2,b\ 3}/c
-# run $r -p --ignore-fail-on-non-empty a/{b\ 1,b\ 2}/c
-# (( $status == 0 ))
-# [[ ${lines[0]} = "" ]]
-# [[ ! -d a/b\ 2 ]]
-# [[ -d a/b\ 3/c ]]
-# rm -rf a/
-# }
-#
-# #ignore.sh of coreutils with spaces and glob
-# # make sure rmalias's --ignore-fail-on-non-empty option works
-# @test "rmalias -p --ignore-fail-on-non-empty with spaced globbed empty dirs remove them" {
-# mkdir -p a/{b\ 1,b\ 2,b\ 3}/c
-# run $r -p --ignore-fail-on-non-empty a/*/c
-# (( $status == 0 ))
-# [[ ${lines[0]} = "" ]]
-# [[ ! -d a/b\ 3/c ]]
-# }
-#
-#
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 @test "Clean everything" {
 run chmod -f a+w *
 rm -rf *

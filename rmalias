@@ -139,7 +139,7 @@ ERROR=0
 
 
 # use getopt to parse parameters
-if ! OPTIONS=$(getopt -n "$software" -o vhfrRd -l "--dir" -l "--recursive" -l "force" -l "verbose" -l "help" -l "version" -- "$@"); then
+if ! OPTIONS=$(getopt -n "$software" -o vhfrRd -l "--dir" -l "recursive" -l "force" -l "verbose" -l "help" -l "version" -- "$@"); then
     usage
     exit 1
 fi
