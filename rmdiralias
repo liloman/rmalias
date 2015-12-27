@@ -74,6 +74,7 @@ fi
 
 
 trashput() {
+# local dir="$(realpath -Pe --relative-base="$PWD" "$1")" 
 local dir="$(realpath -Pe --relative-base="$PWD" "$1")" 
 local cmd="$TRASH_CMD"
 
