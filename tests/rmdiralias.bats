@@ -117,7 +117,7 @@ rm -rf dirfound
 # make sure rmdiralias -p works on a directory specified with a trailing slash
 @test "rmdiralias -p dir/ works" {
 mkdir a
-rmdiralias -p a/
+$r -p a/
 }
 #
 @test "rmdiralias -p with not empty dirs fails" {
