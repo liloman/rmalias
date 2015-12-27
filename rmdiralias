@@ -87,10 +87,16 @@ local cmd="$TRASH_CMD"
 
 cmd+=" \"$dir\""
 
-[[ $DEBUG = true ]] && echo "$software: executing $cmd"
+[[ $verbose = true || $DEBUG = true ]] && echo "$software: executing $cmd"
 
 STDOUT="$(eval "$cmd" 2>&1)"
 [[ $? != 0 ]] && EXITCODE=1
+
+if [[ $ERROR != 0 && $verbose = true ]]; then 
+    while IFS= read -r line; do
+        [[ -n $line ]] && echo "$line"
+    done <<< "$STDOUT"
+fi
 
 #Show ERROR
 [[  $ERROR = 0 ]] && checkOptions "$dir" ||  showErrors

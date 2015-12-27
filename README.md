@@ -32,8 +32,8 @@ Clone the repo in your $PATH dir and alias it, for example:
 ```bash
 cd ~/Clones
 git clone https://github.com/liloman/rmalias
-ln -s rmalias/rmdiralias ~/.local/bin/rmdiralias
-echo 'alias rmdir="rmdiralias"' >> ~/.bashrc
+ln -s $PWD/rmalias/rmdiralias ~/.local/bin/rmdiralias
+echo 'alias rmdir="rmdiralias -v"' >> ~/.bashrc
 ```
 
 In order to work you need to install trash-cli. For fedora:
