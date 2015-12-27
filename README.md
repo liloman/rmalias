@@ -9,7 +9,10 @@ Did you ever do `rm -rf some-important-dir`?
 
 Did you ever do `rm important-file`?
 
-I even deleted **all** my *local changes* while doing this software without solution. :S
+I even deleted **all** my *local changes* while testing this software without solution. :cry:
+
+
+So I think it's a **must** for regular desktop use nowadays.
 
 #How?
 
