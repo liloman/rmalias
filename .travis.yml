@@ -2,10 +2,9 @@ language: bash
 
 before_install:
   # To install bats and test our shell/bash functions
-  # realpath implemented in bash finally
   - sudo add-apt-repository ppa:duggan/bats --yes
   - sudo apt-get update -qq
-  - sudo apt-get install -qq bats trash-cli 
+  - sudo apt-get install -qq bats trash-cli realpath
 
 # For bats functional tests
 
