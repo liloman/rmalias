@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #Based on original rmdiralias coreutil tests see:
-# http://git.savannah.gnu.org/gitweb/?p=coreutils.git;a=tree;f=tests/rmdiralias;hb=master 
+# http://git.savannah.gnu.org/gitweb/?p=coreutils.git;a=tree;f=tests/rmdir
 
 #WARNING!
 #Be careful don't use ((, cause (( $status == pp )) && echo Really WRONG!

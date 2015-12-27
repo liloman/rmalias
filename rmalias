@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# rmdiralias - rmdir compatible layer for trash
+# rmalias - rm compatible layer for trash
 
 
 #############
@@ -9,8 +9,8 @@
 readonly software=${0##*/}
 readonly version="0.1"
 readonly LC_ALL=C
-readonly RMDIR_CMD="$(which rmdir)"
-[[ -z $RMDIR_CMD ]] && { echo "$software: command 'rmdir' was not found." >&2; exit 1; }
+readonly RM_CMD="$(which rm)"
+[[ -z $RM_CMD ]] && { echo "$software: command 'rm' was not found." >&2; exit 1; }
 # get path of trash.It depends on the installed version of the trash-cli package
 readonly TRASH_CMD="$(which trash-put || which trash)"
 [[ -z $TRASH_CMD ]] && { echo "$software: you need 'trash-put' for using this software." >&2; exit 1; }
@@ -26,9 +26,11 @@ EXITCODE=0
 #Current arg processing
 CURRENT_ARG=
 # default option values
-ignore_fail_on_non_empty=false	
 parents=false             
 verbose=false            
+force=false            
+recursive=false            
+emptydirs=false            
 
 usage() {
 echo "Try '$software --help' for more information."
@@ -45,31 +47,34 @@ checkValid "$dir"
 
 checkValid() {
 local dir="$1"
+local jump=false
 [[ $DEBUG = true ]] && echo "CheckValid: dir:$dir"
 
 # No such file or directory
-if [[ ! -e $dir ]]; then  
+if [[ $force == false && ! -e $dir ]]; then  
     ERROR=1
     STDOUT="$software: failed to remove '$dir': No such file or directory"
-    #Not a dir
-elif [[ ! -d $dir ]]; then
-    ERROR=1
-    STDOUT="$software: failed to remove '$dir': Not a directory"
-    #Permission on parent directory!
-elif [[ ! -w $dir/.. ]]; then
-    ERROR=1
-    STDOUT="$software: failed to remove directory '$dir': Permission denied"
-    # directory not empty
-elif [[ -n $(shopt -s nullglob dotglob;echo "$dir"/*) ]]; then
-    [[ $ignore_fail_on_non_empty == true ]] && return
+elif [[ $force == true && ! -e $dir ]]; then  
+    jump=true
+# not a file
+elif [[ -d $dir && $recursive == false && $emptydirs == false ]]; then  
+        ERROR=1
+        STDOUT="$software: cannot remove '$dir': Is a directory"
+#not empty
+elif [[ $recursive == false && -n $(shopt -s nullglob dotglob;echo "$dir"/*) ]]; then
     ERROR=1
     local msg="directory "
     [[ $CURRENT_ARG = $dir ]] && msg=
-    STDOUT="$software: failed to remove $msg'$dir': Directory not empty" 
+    STDOUT="$software: cannot remove $msg'$dir': Directory not empty" 
+#Permission on parent directory!
+# elif [[ ! -w $dir/.. ]]; then
+#     ERROR=1
+#     STDOUT="$software: failed to remove directory '$dir': Permission denied"
+    # directory not empty
 fi
 
 
-[[ $ERROR = 0 ]] && trashput "$dir" ||  showErrors 
+[[ $jump == false && $ERROR = 0 ]] && trashput "$dir" ||  showErrors 
 }
 
 
@@ -134,7 +139,7 @@ ERROR=0
 
 
 # use getopt to parse parameters
-if ! OPTIONS=$(getopt -n "$software" -o pvh -l "ignore-fail-on-non-empty" -l "parents" -l "verbose" -l "help" -l "version" -- "$@"); then
+if ! OPTIONS=$(getopt -n "$software" -o vhfrRd -l "--dir" -l "--recursive" -l "force" -l "verbose" -l "help" -l "version" -- "$@"); then
     usage
     exit 1
 fi
@@ -144,18 +149,24 @@ eval set -- "${OPTIONS}"
 # parse options
 while true; do
     case "$1" in
-        "--ignore-fail-on-non-empty")
-            ignore_fail_on_non_empty=true
+
+        "-d"|"--dir")
+            emptydirs=true
             shift
             ;;
 
-        "-p"|"--parents")
-            parents=true
+        "-f"|"--force")
+            force=true
             shift
             ;;
 
         "-v"|"--verbose")
             verbose=true
+            shift
+            ;;
+
+        "-R"|"-r"|"--recursive")
+            recursive=true
             shift
             ;;
 
@@ -168,8 +179,8 @@ while true; do
             trash="${TRASH_CMD##*/}"
 
             echo "Put empty directories in trash using the '$trash' command in a way that is,"
-            echo "otherwise as '$trash' itself, compatible to GNUs 'rmdir'."
-            echo "  see $RMDIR_CMD --help"
+            echo "otherwise as '$trash' itself, compatible to GNUs 'rm'."
+            echo "  see $RM_CMD --help"
             echo "  see $TRASH_CMD --help"
             echo
             echo "Help options:"
@@ -191,7 +202,7 @@ while true; do
             ;;
 
         "--version")
-            echo "rmdiralias $version" 
+            echo "rmalias $version" 
             echo "Copyright (C) 2015 Carlos Morata"
             echo "License GPLv3: GNU GPL version 3 only <http://gnu.org/licenses/gpl.html>."
             echo "This is free software: you are free to change and redistribute it."
