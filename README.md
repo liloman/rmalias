@@ -3,6 +3,8 @@ rmalias
 
 #Why?
 
+Did you ever do `rmdir -p /etc/udev/emptydir`?
+
 Did you ever do `rm -rf some-important-dir`?
 
 Did you ever do `rm important-file`?
@@ -80,7 +82,7 @@ $ trash-empty 7
 $ trash-list
 2008-02-19 20:11:34 /home/einar/today
 2008-02-18 20:11:34 /home/einar/yesterday
-```bash
+```
 
 ##Remove only files matching a pattern
 
