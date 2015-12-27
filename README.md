@@ -4,9 +4,10 @@ rmalias
 #Why?
 
 Did you ever do `rm -rf some-important-dir`?
+
 Did you ever do `rm important-file`?
 
-It even ocurred to me meanwhile doing this software and I lost **all** my *local changes*. :S
+I even deleted **all** my *local changes* while doing this software without solution. :S
 
 #How?
 
@@ -27,6 +28,13 @@ git clone https://github.com/liloman/rmalias
 ln -s rmalias/rmdiralias ~/.local/bin/rmdiralias
 echo 'alias rmdir="rmdiralias"' >> ~/.bashrc
 ```
+
+In order to work you need to install trash-cli. For fedora:
+
+```bash
+dnf install trash-cli
+```
+
 
 #Oh wait! I got f*****! (frowning upon)
 
