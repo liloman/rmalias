@@ -1,0 +1,11 @@
+
+rmdiralias
+=============
+* you can't trash the trashcan
+* handle ERRORs from trash-put like not trashcan ...
+* verbose
+
+rmalias
+======
+*make it :)
+

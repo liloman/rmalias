@@ -1,0 +1,223 @@
+#!/bin/bash 
+# rmdiralias - rmdir compatible layer for trash
+
+
+#############
+#  GLOBALS  #
+#############
+
+readonly software=${0##*/}
+readonly version="0.1"
+readonly LC_ALL=C
+readonly RMDIR_CMD="$(which rmdir)"
+[[ -z $RMDIR_CMD ]] && { echo "$software: command 'rmdir' was not found." >&2; exit 1; }
+# get path of trash.It depends on the installed version of the trash-cli package
+readonly TRASH_CMD="$(which trash-put || which trash)"
+[[ -z $TRASH_CMD ]] && { echo "$software: you need 'trash-put' for using this software." >&2; exit 1; }
+# true to get DEBUG information
+readonly DEBUG=false
+
+#STDOUT from trash-put
+STDOUT=
+#exit from trash-put
+ERROR=0
+#default exit
+EXITCODE=0
+#Current arg processing
+CURRENT_ARG=
+# default option values
+ignore_fail_on_non_empty=false	
+parents=false             
+verbose=false            
+
+usage() {
+echo "Try '$software --help' for more information."
+exit 1
+}
+
+deletedir() {
+local dir="$1"
+[[ -z $dir ]] && { EXITCODE=1; return;}
+[[ $DEBUG = true ]] && echo "deletedir: $dir"
+checkValid "$dir"
+}
+
+
+checkValid() {
+local dir="$1"
+[[ $DEBUG = true ]] && echo "CheckValid: dir:$dir"
+
+# No such file or directory
+if [[ ! -e $dir ]]; then  
+    ERROR=1
+    STDOUT="$software: failed to remove '$dir': No such file or directory"
+    #Not a dir
+elif [[ ! -d $dir ]]; then
+    ERROR=1
+    STDOUT="$software: failed to remove '$dir': Not a directory"
+    #Permission on parent directory!
+elif [[ ! -w $dir/.. ]]; then
+    ERROR=1
+    STDOUT="$software: failed to remove directory '$dir': Permission denied"
+    # directory not empty
+elif [[ -n $(shopt -s nullglob dotglob;echo "$dir"/*) ]]; then
+    [[ $ignore_fail_on_non_empty == true ]] && return
+    ERROR=1
+    local msg="directory "
+    [[ $CURRENT_ARG = $dir ]] && msg=
+    STDOUT="$software: failed to remove $msg'$dir': Directory not empty" 
+fi
+
+
+[[ $ERROR = 0 ]] && trashput "$dir" ||  showErrors 
+}
+
+
+trashput() {
+local dir="$(realpath -Pe --relative-base="$PWD" "$1")" 
+local cmd="$TRASH_CMD"
+
+[[ $verbose = true ]] && cmd+=" --verbose"
+
+cmd+=" \"$dir\""
+
+[[ $DEBUG = true ]] && echo "$software: executing $cmd"
+
+STDOUT="$(eval "$cmd" 2>&1)"
+[[ $? != 0 ]] && EXITCODE=1
+
+#Show ERROR
+[[  $ERROR = 0 ]] && checkOptions "$dir" ||  showErrors
+}
+
+
+checkOptions() {
+local dir="$1"
+
+[[ $DEBUG = true ]] && echo "checkOptions: $dir"
+
+if [[ $parents = true ]]; then
+    parentDir=${dir%/*}
+    [[ $parentDir != $dir ]] && { 
+    deletedir "$parentDir"; 
+    [[ $DEBUG = true ]] && echo "deleting parent:$parentDir de:$dir"; }
+fi
+}
+
+
+showErrors() {
+[[ $DEBUG = true ]] && echo "showErrors ERROR=$ERROR,STDOUT=$STDOUT from ${FUNCNAME[1]}"
+
+if [[ $EXITCODE = 0 ]]; then
+    EXITCODE=$ERROR
+fi
+
+while IFS= read -r line; do
+    [[ -n $line ]] && echo "$line"
+done <<< "$STDOUT"
+
+STDOUT=
+ERROR=0
+}
+
+
+# use getopt to parse parameters
+if ! OPTIONS=$(getopt -n "$software" -o pvh -l "ignore-fail-on-non-empty" -l "parents" -l "verbose" -l "help" -l "version" -- "$@"); then
+    usage
+    exit 1
+fi
+eval set -- "${OPTIONS}"
+
+
+# parse options
+while true; do
+    case "$1" in
+        "--ignore-fail-on-non-empty")
+            ignore_fail_on_non_empty=true
+            shift
+            ;;
+
+        "-p"|"--parents")
+            parents=true
+            shift
+            ;;
+
+        "-v"|"--verbose")
+            verbose=true
+            shift
+            ;;
+
+        "-h")
+            echo "$software: invalid option -- 'h'"
+            usage
+            ;;
+
+        "--help")
+            trash="${TRASH_CMD##*/}"
+
+            echo "Put empty directories in trash using the '$trash' command in a way that is,"
+            echo "otherwise as '$trash' itself, compatible to GNUs 'rmdir'."
+            echo "  see $RMDIR_CMD --help"
+            echo "  see $TRASH_CMD --help"
+            echo
+            echo "Help options:"
+            echo "      --help                display this help and exit"
+            echo "      --version             output version information and exit"
+            echo
+            echo "Application options:"
+            echo "      --ignore-fail-on-non-empty"
+            echo "                 ignore each failure that is solely because a directory"
+            echo "                    is non-empty"
+            echo "  -p, --parents  remove DIRECTORY and its ancestors;"
+            echo "                    e.g., '$software -p a/b/c' is similar"
+            echo "                    to '$software a/b/c a/b a'"
+            echo "  -v, --verbose  output a diagnostic for every directory processed"
+            echo
+            echo "Please report bugs using GitHub at <https://github.com/liloman/rmalias>."
+            echo "Besides, you will find general help and information about $software there."
+            exit 0
+            ;;
+
+        "--version")
+            echo "rmdiralias $version" 
+            echo "Copyright (C) 2015 Carlos Morata"
+            echo "License GPLv3: GNU GPL version 3 only <http://gnu.org/licenses/gpl.html>."
+            echo "This is free software: you are free to change and redistribute it."
+            echo "There is NO WARRANTY, to the extent permitted by law."
+            echo
+            echo "See also: <https://github.com/liloman/rmalias"
+            exit 0
+            ;;
+
+        "--")
+            shift
+            break
+            ;;
+        \?)
+            echo "Invalid options: -$OPTARG" >&2
+            ;;
+
+        *)
+            echo "$software: execution of getopt failed" >&2
+            usage
+            ;;
+    esac
+done
+
+# no arguments given
+if [[ $# = 0 ]]; then
+    echo "$software: missing operand" >&2
+    usage
+fi
+
+
+# parse arguments
+while (( $# > 0 )); do
+    CURRENT_ARG="$1"
+    deletedir "$1"
+    shift
+done
+
+exit $EXITCODE
+
+
