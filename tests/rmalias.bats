@@ -360,7 +360,7 @@ run $r d
 # When run by root we get this:
 # rm: cannot remove 'unwritable-dir': Is a directory
 [[ ${lines[0]} = "rmalias: cannot remove 'd': Is a directory" ]]
-rm -d d
+rm -rf d
 }
 
 #dot-rel.sh of rm coreutils
@@ -385,11 +385,11 @@ mkdir -m0 inacc
 mkdir -m a-r -p a/unreadable
 
 # This would fail for e.g., coreutils-5.93.
-rm -rf inacc 
+$r -rf inacc 
 [[ -d inacc ]]
 
 # This would fail for e.g., coreutils-5.97.
-rm -rf a 
+run $r -rf a 
 [[ -d a ]]
 (( $status == 0 ))
 [[ ${lines[0]} = "" ]]
@@ -398,12 +398,75 @@ rm -rf a
 
 #empty-name.sh of rm coreutils
 # Make sure that rm -r '' fails
-@test "rmalias dot-rel.sh" {
+@test "rmalias empty-name.sh" {
 run $r -r ''
 (( $status == 1 ))
 [[ ${lines[0]} = "rmalias: cannot remove '': No such file or directory" ]]
 }
 
+
+#ext3-perf.sh of rm coreutils
+# ensure that "rm -rf DIR-with-many-entries" is not O(N^2)
+@test "rmalias ext3-perf.sh" {
+skip "needs strace or maybe impossible ..."
+run $r -r ''
+(( $status == 1 ))
+[[ ${lines[0]} = "rmalias: cannot remove '': No such file or directory" ]]
+}
+
+#f-1.sh of rm coreutils
+# Test "rm -f" with a nonexistent file.
+@test "rmalias f-1.sh" {
+mkdir -p d
+run $r -f d/no-such-file
+(( $status == 0 ))
+[[ ${lines[0]} = "" ]]
+rm -rf d
+}
+
+
+#fail-2eperm.sh of rm coreutils
+# Like fail-eperm, but the failure must be for a file encountered
+# while trying to remove the containing directory with the sticky bit set.
+@test "rmalias fail-2eperm.sh" {
+# The containing directory must be owned by the user who eventually runs rm.
+chown $USER .
+mkdir a
+chmod 1777 a
+touch a/b
+run $r -rf a
+(( $status == 0 ))
+[[ ${lines[0]} = "" ]]
+rm -rf a
+}
+
+
+#fail-eacces.sh of rm coreutils
+# Ensure that rm -rf unremovable-non-dir gives a diagnostic.
+# Test both a regular file and a symlink -- it makes a difference to rm.
+# With the symlink, rm from coreutils-6.9 would fail with a misleading
+# ELOOP diagnostic.
+@test "rmalias fail-eaccess.sh" {
+mkdir d
+touch d/f 
+ln -s f d/slink 
+chmod a-w d    
+
+mkdir e 
+ln -s f e/slink
+chmod a-w e   
+
+run $r -rf d/f 
+(( $status == 1 ))
+[[ ${lines[0]} = "rmalias: cannot remove 'd/f': Permission denied" ]]
+
+# This used to fail with ELOOP.
+run $r -rf e 
+(( $status == 1 ))
+[[ ${lines[0]} = "rmalias: cannot remove 'e/slink': Permission denied" ]]
+chmod -Rf a+w *
+rm -rf *
+}
 
 @test "Clean everything" {
 touch file-to-not-fail-test-on-empty-dir

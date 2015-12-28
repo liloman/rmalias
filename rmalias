@@ -92,8 +92,8 @@ if [[ $doingRecursive == true ]]; then
     [[ $found == false ]] &&  return;
 fi
 
-#Recursive option
-if [[ $recursive == true && $doingRecursive == false ]]; then
+#Recursive option only for dirs
+if [[ $recursive == true && $doingRecursive == false && -d $dir ]]; then
     doingRecursive=true
     sortDirs "$dir"
     for i in ${!dirsRecursive[@]}; do
@@ -129,6 +129,10 @@ elif [[ ! -w $dir ]]; then
     for file in $dir/*; do
         STDOUT+="$software: cannot remove '$file': Permission denied"$'\n'
     done
+#No permission on parent when delete a file
+elif [[ ! -d $dir && ! -w ${dir%/*} ]]; then
+    ERROR=1
+    STDOUT="$software: cannot remove '$dir': Permission denied"$'\n'
 fi
 
 [[ $dontPrint == false && $ERROR = 0 ]] && trashput "$dir" ||  showErrors  "$dir"
