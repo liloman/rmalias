@@ -183,7 +183,6 @@ rm -rf 1/
 
 
 #ignore.sh of rmdir coreutils with spaces
-# make sure rmalias's --ignore-fail-on-non-empty option works
 @test "rmalias --recursive with spaced empty dirs remove them" {
 mkdir -p a/{b\ 1,b\ 2}/c
 run $r --recursive a/
@@ -195,13 +194,14 @@ rm -rf a/
 
 
 #ignore.sh of rmdir coreutils with spaces and glob
-# make sure rmalias's --ignore-fail-on-non-empty option works
-@test "rmalias -R with spaced globbed empty dirs remove them" {
+@test "rmalias -R with spaced globbed empty dirs remove them until first" {
 mkdir -p a/{b\ 1,b\ 2,b\ 3}/c
 run $r -R a/*
 (( $status == 0 ))
 [[ ${lines[0]} = "" ]]
 [[ ! -d a/b\ 3/c ]]
+[[ -d a ]]
+rm -rf a/
 }
 
 
@@ -213,17 +213,18 @@ run $r -R a/*
 
 
 #cycle.sh of rm coreutils
-# @test "rmalias cycle.sh" {
-# mkdir -p a/b
-# touch a/b/file
-# chmod u-w a/b
-# run $r -rf a a 2>&1 
-# (( $status == 1 ))
-# [[ ${lines[0]} = "rmalias: cannot remove 'a/b/file': Permission denied" ]]
-# [[ ${lines[1]} = "rmalias: cannot remove 'a/b/file': Permission denied" ]]
-# [[ -d a ]]
-# rm -rf a/
-# }
+@test "rmalias cycle.sh" {
+mkdir -p a/b
+touch a/b/file
+chmod u-w a/b
+run $r -rf a a 
+(( $status == 1 ))
+[[ ${lines[0]} = "rmalias: cannot remove 'a/b/file': Permission denied" ]]
+[[ ${lines[1]} = "rmalias: cannot remove 'a/b/file': Permission denied" ]]
+[[ -d a ]]
+chmod u+w a/b
+rm -rf a/
+}
 
 
 
@@ -241,7 +242,8 @@ run $r -R a/*
 
 
 @test "Clean everything" {
-run chmod -f a+w *
+touch file-to-not-fail-test-on-empty-dir
+chmod -Rf a+w *
 rm -rf *
 }
 #

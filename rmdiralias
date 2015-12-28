@@ -99,14 +99,14 @@ if [[ $ERROR != 0 && $verbose = true ]]; then
 fi
 
 #Show ERROR
-[[  $ERROR = 0 ]] && checkOptions "$dir" ||  showErrors
+[[  $ERROR = 0 ]] && doParents "$dir" ||  showErrors
 }
 
 
-checkOptions() {
+doParents() {
 local dir="$1"
 
-[[ $DEBUG = true ]] && echo "checkOptions: $dir"
+[[ $DEBUG = true ]] && echo "doParents: $dir"
 
 if [[ $parents = true ]]; then
     parentDir=${dir%/*}
