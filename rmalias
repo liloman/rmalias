@@ -122,8 +122,8 @@ elif [[ -d $dir && $recursive == false ]]; then
         [[ $CURRENT_ARG = $dir ]] && msg=
         STDOUT="$software: cannot remove $msg'$dir': Directory not empty" 
     fi
-#Permission on directory
-elif [[ ! -w $dir ]]; then
+#Permission write on directory or execution on parent dir for dirs
+elif [[ -d $dir ]] && [[ ! -w $dir || ! -x $dir/..  ]]; then
     ERROR=1
     dir=${dir%/}
     for file in $dir/*; do
