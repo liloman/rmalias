@@ -70,8 +70,10 @@ exit 1
 
 function deletedir() {
 local dir="$1"
-[[ -z $dir ]] && { EXITCODE=1; return;}
 [[ $DEBUG = true ]] && echo "deletedir: $dir"
+
+[[ -z $dir ]] && { EXITCODE=1; echo "$software: cannot remove '$dir': No such file or directory"; return ; }
+
 checkValid "$dir"
 }
 
@@ -105,7 +107,7 @@ if [[ $recursive == true && $doingRecursive == false ]]; then
 # No such file or directory
 elif [[ $force == false && ! -e $dir ]]; then  
     ERROR=1
-    STDOUT="$software: failed to remove '$dir': No such file or directory"
+    STDOUT="$software: cannot remove '$dir': No such file or directory"
 elif [[ $force == true && ! -e $dir ]]; then  
     dontPrint=true
 # Directory
@@ -137,7 +139,7 @@ function trashput() {
 # Uncomment for coreutils > 8.13 (Ubuntu > Precise)
 # local dir="$(realpath -Pe --relative-base="$PWD" "$1")" 
 # realpath relative-base in bash
-local dir="$(realpath "$1")" len="${#PWD}"
+local dir="$(realpath "$1")" len="${#PWD}" msg
 [[ ${dir:0:len} == $PWD ]] && dir="${dir/$PWD\//}"
 #end realpath --relative-base
 
@@ -147,7 +149,9 @@ local cmd="$TRASH_CMD"
 
 cmd+=" \"$dir\""
 
-[[ $verbose = true || $DEBUG = true ]] && echo "$software: executing $cmd"
+[[ $DEBUG = true ]] && echo "$software: executing $cmd"
+
+[[ -d $dir ]] && msg="removed directory: '$dir'" || msg="removed '$dir'"
 
 STDOUT="$(eval "$cmd" 2>&1)"
 [[ $? != 0 ]] && EXITCODE=1
@@ -158,11 +162,17 @@ if [[ $ERROR != 0 && $verbose = true ]]; then
     done <<< "$STDOUT"
 fi
 
-#Show ERROR
-[[  $ERROR = 0 ]] ||  showErrors "$dir"
+#Show verboses or errors
+[[  $ERROR = 0 ]] && showVerbose "$msg" ||  showErrors "$dir"
 }
 
 
+function showVerbose() {
+[[ $verbose = false ]] && return
+local msg="$1"
+
+echo "$msg"
+}
 
 function showErrors() {
 local dir="$1" len temp
@@ -193,7 +203,7 @@ fi
 
 
 # use getopt to parse parameters
-if ! OPTIONS=$(getopt -n "$software" -o vhfrRd -l "--dir" -l "recursive" -l "force" -l "verbose" -l "help" -l "version" -- "$@"); then
+if ! OPTIONS=$(getopt -n "$software" -o vhfrRd -l "dir" -l "recursive" -l "force" -l "verbose" -l "help" -l "version" -- "$@"); then
     usage
     exit 1
 fi
@@ -231,27 +241,45 @@ while true; do
 
         "--help")
             trash="${TRASH_CMD##*/}"
+            echo "Put empty directories in trash using the '$trash' command in a way that is,
+            otherwise as '$trash' itself, compatible to GNUs 'rm'.
+            see $TRASH_CMD --help
+            Usage: rm [OPTION]... [FILE]...
+            Remove (unlink) the FILE(s).
 
-            echo "Put empty directories in trash using the '$trash' command in a way that is,"
-            echo "otherwise as '$trash' itself, compatible to GNUs 'rm'."
-            echo "  see $RM_CMD --help"
-            echo "  see $TRASH_CMD --help"
-            echo
-            echo "Help options:"
-            echo "      --help                display this help and exit"
-            echo "      --version             output version information and exit"
-            echo
-            echo "Application options:"
-            echo "      --ignore-fail-on-non-empty"
-            echo "                 ignore each failure that is solely because a directory"
-            echo "                    is non-empty"
-            echo "  -p, --parents  remove DIRECTORY and its ancestors;"
-            echo "                    e.g., '$software -p a/b/c' is similar"
-            echo "                    to '$software a/b/c a/b a'"
-            echo "  -v, --verbose  output a diagnostic for every directory processed"
-            echo
-            echo "Please report bugs using GitHub at <https://github.com/liloman/rmalias>."
-            echo "Besides, you will find general help and information about $software there."
+            -f, --force           ignore nonexistent files and arguments, never prompt
+            -i                    prompt before every removal
+            -I                    prompt once before removing more than three files, or
+            when removing recursively; less intrusive than -i,
+            while still giving protection against most mistakes
+                --interactive[=WHEN]  prompt according to WHEN: never, once (-I), or
+                always (-i); without WHEN, prompt always
+                --one-file-system  when removing a hierarchy recursively, skip any
+                directory that is on a file system different from
+                that of the corresponding command line argument
+                --no-preserve-root  do not treat '/' specially
+                --preserve-root   do not remove '/' (default)
+                -r, -R, --recursive   remove directories and their contents recursively
+                -d, --dir             remove empty directories
+                -v, --verbose         explain what is being done
+                --help     display this help and exit
+                --version  output version information and exit
+
+                By default, rm does not remove directories.  Use the --recursive (-r or -R)
+                option to remove each listed directory, too, along with all of its contents.
+
+                To remove a file whose name starts with a '-', for example '-foo',
+                use one of these commands:
+                rm -- -foo
+
+                rm ./-foo
+
+                Note that if you use rm to remove a file, it might be possible to recover
+                some of its contents, given sufficient expertise and/or time.  For greater
+                assurance that the contents are truly unrecoverable, consider using shred.
+
+                Please report bugs using GitHub at <https://github.com/liloman/rmalias>.
+                Besides, you will find general help and information about $software there."
             exit 0
             ;;
 
