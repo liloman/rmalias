@@ -15,7 +15,7 @@ readonly RM_CMD="$(which rm)"
 readonly TRASH_CMD="$(which trash-put || which trash)"
 [[ -z $TRASH_CMD ]] && { echo "$software: you need 'trash-put' for using this software." >&2; exit 1; }
 # true to get DEBUG information
-readonly DEBUG=false
+DEBUG=0
 
 #Global array for sortDirs (recursive option)
 declare -a dirsRecursive
@@ -60,7 +60,7 @@ while (( max > 0 )); do
   (( max --))
 done
 
-[[ $DEBUG == true ]] && echo "sortedDirs tam:${#dirsRecursive[@]}--> ${dirsRecursive[@]}"
+[[ $DEBUG == 2 ]] && echo "sortedDirs tam:${#dirsRecursive[@]}--> ${dirsRecursive[@]}"
 }
 
 function usage() {
@@ -70,7 +70,7 @@ exit 1
 
 function deletedir() {
 local dir="$1"
-[[ $DEBUG = true ]] && echo "deletedir: $dir"
+[[ $DEBUG == 2 ]] && echo "deletedir: $dir"
 
 [[ -z $dir ]] && { EXITCODE=1; echo "$software: cannot remove '$dir': No such file or directory"; return ; }
 
@@ -81,14 +81,14 @@ checkValid "$dir"
 function checkValid() {
 local dir="$1" 
 local dontPrint=false found=false
-[[ $DEBUG = true ]] && echo "CheckValid: dir:$dir"
+[[ $DEBUG == 2 ]] && echo "CheckValid: dir:$dir"
 
 #Check if already deleted from dirsRecursive
 if [[ $doingRecursive == true ]]; then
     for i in ${!dirsRecursive[@]}; do
         [[ ${dirsRecursive[i]} == $dir ]] && found=true
     done
-    [[ $DEBUG = true ]] && echo "found: $found --> $dir"
+    [[ $DEBUG == 2 ]] && echo "found: $found --> $dir"
     [[ $found == false ]] &&  return;
 fi
 
@@ -153,7 +153,7 @@ local cmd="$TRASH_CMD"
 
 cmd+=" \"$dir\""
 
-[[ $DEBUG = true ]] && echo "$software: executing $cmd"
+[[ $DEBUG == 1 ]] && echo "$software: executing $cmd"
 
 [[ -d $dir ]] && msg="removed directory: '$dir'" || msg="removed '$dir'"
 
@@ -180,7 +180,7 @@ echo "$msg"
 
 function showErrors() {
 local dir="$1" len temp
-[[ $DEBUG = true ]] && echo "showErrors ERROR=$ERROR,STDOUT=$STDOUT from ${FUNCNAME[1]}"
+[[ $DEBUG == 2 ]] && echo "showErrors ERROR=$ERROR,STDOUT=$STDOUT from ${FUNCNAME[1]}"
 
 #if first error
 [[ $EXITCODE = 0 ]] && EXITCODE=$ERROR
@@ -229,6 +229,8 @@ while true; do
             ;;
 
         "-v"|"--verbose")
+            [[ $DEBUG = 1 ]] && DEBUG=2
+            [[ $DEBUG = 0 && $verbose = true ]] && DEBUG=1
             verbose=true
             shift
             ;;
