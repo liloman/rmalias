@@ -72,7 +72,7 @@ function deletedir() {
 local dir="$1"
 [[ $DEBUG == 2 ]] && echo "deletedir: $dir"
 
-[[ -z $dir ]] && { EXITCODE=1; echo "$software: cannot remove '$dir': No such file or directory"; return ; }
+# [[ -z $dir && $force == false ]] && { EXITCODE=1; echo "$software: cannot remove '$dir': No such file or directory"; return ; }
 
 checkValid "$dir"
 }
@@ -83,7 +83,7 @@ local dir="$1"
 local dontPrint=false found=false
 [[ $DEBUG == 2 ]] && echo "CheckValid: dir:$dir"
 
-#Check if already deleted from dirsRecursive
+#Check if dir was already deleted from dirsRecursive
 if [[ $doingRecursive == true ]]; then
     for i in ${!dirsRecursive[@]}; do
         [[ ${dirsRecursive[i]} == $dir ]] && found=true
@@ -140,12 +140,7 @@ fi
 
 
 function trashput() {
-# Uncomment for coreutils > 8.13 (Ubuntu > Precise)
-# local dir="$(realpath -Pe --relative-base="$PWD" "$1")" 
-# realpath relative-base in bash
-local dir="$(realpath "$1")" len="${#PWD}" msg
-[[ ${dir:0:len} == $PWD ]] && dir="${dir/$PWD\//}"
-#end realpath --relative-base
+local dir="$1"  msg
 
 local cmd="$TRASH_CMD"
 
@@ -324,8 +319,21 @@ fi
 
 # parse arguments
 while (( $# > 0 )); do
-    CURRENT_ARG="$1"
-    deletedir "$1"
+    # Uncomment for coreutils > 8.13 (Ubuntu > Precise)
+    # local dir="$(realpath -se --relative-base="$PWD" "$1")" 
+    # realpath relative-base in bash
+    current="$(realpath -s "$1" 2>/dev/null)" len="${#PWD}" 
+    [[ ${current:0:len} == $PWD ]] && current="${current/$PWD\//}"
+    if [[ -z $current && $force == false ]]; then  
+        EXITCODE=1; 
+        STDOUT="$software: cannot remove '$current': No such file or directory";
+        showErrors "$current"
+    else
+        #end realpath --relative-base
+        CURRENT_ARG="$current"
+        deletedir "$current"
+    fi
+    unset current CURRENT_ARG
     shift
 done
 
