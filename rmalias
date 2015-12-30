@@ -17,8 +17,6 @@ readonly TRASH_CMD="$(which trash-put || which trash)"
 # true to get DEBUG information
 DEBUG=0
 
-#Global array for sortDirs (recursive option)
-declare -A dirsRecursive
 #File with sorted dirs (recursive)
 readonly fileDirs="/tmp/.fileDirs" 
 #STDOUT from trash-put
@@ -66,7 +64,7 @@ rm -f $tempFile
 
 #Insert dirs in dirsRecursive by depth-traversal with modification time
 function getDirs() {
-local max=0 base="$1" tempFile="/tmp/.listing" 
+local max=0 base="$1" tempFile="/tmp/.listing"  cur time
 local regex='find:[[:space:]][[:punct:]](.*)[[:punct:]]: Permission denied' 
 #remove trailing /
 base="${base%/}"
@@ -80,8 +78,8 @@ find "$base/" -mindepth 1 -type d -printf '%A@/%p\n' &> $tempFile
 #Dont parse error from permission denied
 while IFS= read -r line; do
     [[ $line =~ $regex ]] && continue
-    time=${line%%/*} 
-    cur=${line#*/} 
+    time=${line%%/*}
+    cur="${line#*/}"
     dirsRecursive["$cur"]="$time"
 done < $tempFile
 
@@ -154,7 +152,6 @@ if [[ -d $dir ]]; then
         #Clean up for next arguments
         rm -f $fileDirs
         unset dirsRecursive
-        declare -A dirsRecursive
         doingRecursive=false
         #Dont delete arg base dir cause it's already included in dirsRecursive
         return
@@ -194,6 +191,14 @@ elif [[ ! -e $dir && ! -h $dir ]]; then
         else
             dontPrint=true
         fi
+    fi
+    #regular file 
+else
+    #Permission write on directory or execution on parent dir for dirs
+    if [[ ! -w ${dir%/*} ]]; then
+        ERROR=1
+        STDOUT="$software: cannot remove '$dir': Permission denied"$'\n'
+        # directory not empty
     fi
 fi
 
@@ -388,6 +393,8 @@ fi
 
 # parse arguments
 while (( $# > 0 )); do
+    #Global array for sortDirs (recursive option)
+    declare -A dirsRecursive
     # Uncomment for coreutils > 8.13 (Ubuntu > Precise)
     # local dir="$(realpath -se --relative-base="$PWD" "$1")" 
     # realpath relative-base in bash
