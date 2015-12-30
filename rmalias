@@ -47,7 +47,13 @@ shopt -s nullglob dotglob
 
 #Sort dirs by modification time
 function sortDirs() {
-sort -r -k1 -k2 $fileDirs | cut -d' ' -f2
+[[ ! -f $fileDirs ]] && return 
+local tempFile="/tmp/.listing$RANDOM"
+sort -r -k1 -k2 $fileDirs > $tempFile
+
+while IFS= read -r line; do
+    echo ${line#*/}
+done < $tempFile
 }
 
 
@@ -59,15 +65,14 @@ local regex='find:[[:space:]][[:punct:]](.*)[[:punct:]]: Permission denied'
 base="${base%/}"
 
 find "$base/" -mindepth 1 -maxdepth 1 -type d -printf '%T@\t%p\n' &>$tempFile
-mapfile -t filemap <<< $tempFile
 
 while IFS= read -r line; do
     read time cur <<< $line
     [[ $cur =~ $regex ]] && cur="${BASH_REMATCH[1]}"
     time=${time/./}
-    echo "$time $cur" >> $fileDirs
+    echo "$time/$cur" >> $fileDirs
     getDirs "$cur"
-done < $filemap
+done < $tempFile
 
 rm $tempFile
 }
@@ -111,9 +116,10 @@ if [[ -d $dir ]]; then
         #Get all subdirs 
         getDirs "$dir"
         #Sort it all by modification time
-        for file in $(sortDirs); do
-            dirsRecursive+=("$file")
-        done
+        while IFS= read -r line; do
+            dirsRecursive+=("$line")
+        done < <(sortDirs)
+        dirsRecursive+=("$dir")
         for i in ${!dirsRecursive[@]}; do
             base="${dirsRecursive[i]}" 
             #Remove only files of each subdir (base has a trailing /)
@@ -124,7 +130,7 @@ if [[ -d $dir ]]; then
             checkValid "$base"
         done
         #Clean up for next arguments
-        rm $fileDirs
+        rm -f $fileDirs
         unset dirsRecursive
         doingRecursive=false
         #Dont delete arg base dir cause it's already included in dirsRecursive
@@ -354,6 +360,9 @@ if [[ $# = 0 ]]; then
     usage
 fi
 
+
+#Let' s be sure
+rm -f $fileDirs
 
 # parse arguments
 while (( $# > 0 )); do
