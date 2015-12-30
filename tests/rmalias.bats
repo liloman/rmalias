@@ -458,13 +458,13 @@ touch d/f
 ln -s f d/slink 
 chmod a-w d    
 
-mkdir e 
-ln -s f e/slink
-chmod a-w e   
-
 run $r -rf d/f 
 (( $status == 1 ))
 [[ ${lines[0]} = "rmalias: cannot remove 'd/f': Permission denied" ]]
+
+mkdir e 
+ln -s f e/slink
+chmod a-w e   
 
 # This used to fail with ELOOP.
 run $r -rf e 

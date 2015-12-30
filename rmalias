@@ -19,6 +19,8 @@ DEBUG=0
 
 #Global array for sortDirs (recursive option)
 declare -a dirsRecursive
+#File for getDirs (recursive option)
+readonly fileDirs="/tmp/.fileDirs"
 #STDOUT from trash-put
 STDOUT=
 #exit from trash-put
@@ -35,32 +37,39 @@ recursive=false
 doingRecursive=false
 emptydirs=false            
 
-#For sortDirs
-shopt -s globstar 
-
+#For older getDirs
 #Sort dirs by further and alphabetically
+#  ** doesn't pass through dirs without x permission as find does :(
+#shopt -s globstar 
+#For listing files
+shopt -s nullglob dotglob
+
+
+#Sort dirs by modification time
 function sortDirs() {
-local max=0 depth dlen link ref base="$1"
+sort -r -k1 -k2 $fileDirs | cut -d' ' -f2
+}
+
+
+#Insert dirs in dirsRecursive
+function getDirs() {
+local max=0 base="$1" tempFile="/tmp/.listing$RANDOM" filemap
+local regex='find:[[:space:]][[:punct:]](.*)[[:punct:]]: Permission denied' 
 #remove trailing /
 base="${base%/}"
 
-for dir in "$base"/**/; do
-    depth="${dir//[^\/]}"
-    dlen=${#depth}
-    (( $dlen > max )) && { max=$dlen; declare -a dirs$max; }
-    #To work with spaces
-    eval "dirs$dlen+=( \"\$dir\" )"
-done
- 
-while (( max > 0 )); do
-  link=dirs$max
-  ref="${link}[@]"
-  temp=( "${!ref}" )
-  dirsRecursive+=( "${!ref}" )
-  (( max --))
-done
+find "$base/" -mindepth 1 -maxdepth 1 -type d -printf '%T@\t%p\n' &>$tempFile
+mapfile -t filemap <<< $tempFile
 
-[[ $DEBUG == 2 ]] && echo "sortedDirs tam:${#dirsRecursive[@]}--> ${dirsRecursive[@]}"
+while IFS= read -r line; do
+    read time cur <<< $line
+    [[ $cur =~ $regex ]] && cur="${BASH_REMATCH[1]}"
+    time=${time/./}
+    echo "$time $cur" >> $fileDirs
+    getDirs "$cur"
+done < $filemap
+
+rm $tempFile
 }
 
 function usage() {
@@ -70,7 +79,7 @@ exit 1
 
 function deletedir() {
 local dir="$1"
-[[ $DEBUG == 2 ]] && echo "deletedir: $dir"
+(($DEBUG >= 2)) && echo "deletedir: $dir"
 
 # [[ -z $dir && $force == false ]] && { EXITCODE=1; echo "$software: cannot remove '$dir': No such file or directory"; return ; }
 
@@ -79,68 +88,95 @@ checkValid "$dir"
 
 
 function checkValid() {
-local dir="$1" 
-local dontPrint=false found=false
-[[ $DEBUG == 2 ]] && echo "CheckValid: dir:$dir"
+local dir="$1"  dontPrint=false temp
+local found=false base
+(($DEBUG >= 2)) && echo "CheckValid: dir:$dir"
+
+(($DEBUG >= 3)) && set -x 
 
 #Check if dir was already deleted from dirsRecursive
-if [[ $doingRecursive == true ]]; then
+if [[  $doingRecursive == true && -d $dir ]]; then
     for i in ${!dirsRecursive[@]}; do
         [[ ${dirsRecursive[i]} == $dir ]] && found=true
     done
-    [[ $DEBUG == 2 ]] && echo "found: $found --> $dir"
+    (($DEBUG >= 2)) && echo "notDeleted: $found --> $dir"
     [[ $found == false ]] &&  return;
 fi
 
-#Recursive option only for dirs
-if [[ $recursive == true && $doingRecursive == false && -d $dir ]]; then
-    doingRecursive=true
-    sortDirs "$dir"
-    for i in ${!dirsRecursive[@]}; do
-        checkValid "${dirsRecursive[i]}" 
-    done
-    #Clean up for next arguments
-    unset dirsRecursive
-    doingRecursive=false
-    #Dont delete arg base dir cause it's already included in dirsRecursive
-    return
-# No such file or directory
-elif [[ $force == false && ! -e $dir ]]; then  
-    ERROR=1
-    STDOUT="$software: cannot remove '$dir': No such file or directory"
-elif [[ $force == true && ! -e $dir ]]; then  
-    dontPrint=true
-# Directory
-elif [[ -d $dir && $recursive == false ]]; then 
-    if [[ $emptydirs == false ]]; then  
-        ERROR=1
-        STDOUT="$software: cannot remove '$dir': Is a directory"
-   # directory not empty
-    elif [[ -n $(shopt -s nullglob dotglob;echo "$dir"/*) ]]; then
-        ERROR=1
-        local msg="directory "
-        [[ $CURRENT_ARG = $dir ]] && msg=
-        STDOUT="$software: cannot remove $msg'$dir': Directory not empty" 
+#If it's a dir
+if [[ -d $dir ]]; then
+    #Recursive option only for dirs not parsed already
+    if [[ $recursive == true && $doingRecursive == false ]]; then
+        doingRecursive=true
+        #Get all subdirs 
+        getDirs "$dir"
+        #Sort it all by modification time
+        for file in $(sortDirs); do
+            dirsRecursive+=("$file")
+        done
+        for i in ${!dirsRecursive[@]}; do
+            base="${dirsRecursive[i]}" 
+            #Remove only files of each subdir (base has a trailing /)
+            for file in "$base"*; do
+                [[ ! -d $file ]] && checkValid "$file" 
+            done
+            #Remove subdir when all files have been checked/deleted
+            checkValid "$base"
+        done
+        #Clean up for next arguments
+        rm $fileDirs
+        unset dirsRecursive
+        doingRecursive=false
+        #Dont delete arg base dir cause it's already included in dirsRecursive
+        return
+    # Not recursive or doingRecursive
+    else
+    # elif [[ $recursive == false ]]; then 
+            #Permission write on directory or execution on parent dir for dirs
+        if [[ ! -w $dir || ! -x $dir/..  ]]; then
+            ERROR=1
+            dir=${dir%/}
+            for file in $dir/*; do
+                STDOUT+="$software: cannot remove '$file': Permission denied"$'\n'
+            done
+            # directory not empty
+        elif [[ $recursive == false && $emptydirs == false ]]; then  
+            ERROR=1
+            STDOUT="$software: cannot remove '$dir': Is a directory"
+        elif [[ $recursive == false && -n $(echo "$dir"/*) ]]; then
+            ERROR=1
+            local msg="directory "
+            [[ $CURRENT_ARG = $dir ]] && msg=
+            STDOUT="$software: cannot remove $msg'$dir': Directory not empty" 
+        fi
     fi
-#Permission write on directory or execution on parent dir for dirs
-elif [[ -d $dir ]] && [[ ! -w $dir || ! -x $dir/..  ]]; then
-    ERROR=1
-    dir=${dir%/}
-    for file in $dir/*; do
-        STDOUT+="$software: cannot remove '$file': Permission denied"$'\n'
-    done
-#No permission on parent when delete a file
-elif [[ ! -d $dir && ! -w ${dir%/*} ]]; then
-    ERROR=1
-    STDOUT="$software: cannot remove '$dir': Permission denied"$'\n'
+#if it doesn't exist and not a broken symlink
+elif [[ ! -e $dir && ! -h $dir ]]; then  
+    # No such file or directory
+    if [[ $force == false ]]; then
+        ERROR=1
+        STDOUT="$software: cannot remove '$dir': No such file or directory"
+    else
+        dontPrint=true
+    fi
+#Not dirs (regular files, symlinks ...)
+else
+    #Relative file so
+    [[ ${dir:0:1} != / ]] && base="$PWD/$dir"
+    if [[ ! -w ${base%/*} || ! -x ${base%/*}  ]]; then
+        ERROR=1
+        STDOUT="$software: cannot remove '$dir': Permission denied"$'\n'
+    fi
 fi
 
-[[ $dontPrint == false && $ERROR = 0 ]] && trashput "$dir" ||  showErrors  "$dir"
+(($DEBUG >= 3)) && set +x 
+[[ $ERROR == 0  && $dontPrint == false ]] && trashput "$dir" ||  showErrors  "$dir" 
 }
 
 
 function trashput() {
 local dir="$1"  msg
+(($DEBUG >= 2)) && echo "trashput:$dir"
 
 local cmd="$TRASH_CMD"
 
@@ -148,12 +184,13 @@ local cmd="$TRASH_CMD"
 
 cmd+=" \"$dir\""
 
-[[ $DEBUG == 1 ]] && echo "$software: executing $cmd"
+(($DEBUG >= 1)) && echo "$software: executing $cmd"
 
-[[ -d $dir ]] && msg="removed directory: '$dir'" || msg="removed '$dir'"
+
+[[ -d $dir ]] && msg="removed directory: '${dir%/}'" || msg="removed '$dir'"
 
 STDOUT="$(eval "$cmd" 2>&1)"
-[[ $? != 0 ]] && EXITCODE=1
+[[ $? != 0 && $force == false ]] && EXITCODE=1
 
 if [[ $ERROR != 0 && $verbose = true ]]; then 
     while IFS= read -r line; do
@@ -162,7 +199,7 @@ if [[ $ERROR != 0 && $verbose = true ]]; then
 fi
 
 #Show verboses or errors
-[[  $ERROR = 0 ]] && showVerbose "$msg" ||  showErrors "$dir"
+[[  $ERROR = 0 ]] && showVerbose "$msg" ||  showErrors "$dir" false
 }
 
 
@@ -174,8 +211,8 @@ echo "$msg"
 }
 
 function showErrors() {
-local dir="$1" len temp
-[[ $DEBUG == 2 ]] && echo "showErrors ERROR=$ERROR,STDOUT=$STDOUT from ${FUNCNAME[1]}"
+local dir="$1" len temp 
+(($DEBUG >= 2)) && echo "showErrors ERROR=$ERROR,STDOUT=$STDOUT from ${FUNCNAME[1]}"
 
 #if first error
 [[ $EXITCODE = 0 ]] && EXITCODE=$ERROR
@@ -195,7 +232,7 @@ if [[ $doingRecursive == true ]]; then
     for i in ${!dirsRecursive[@]}; do
         temp="${dirsRecursive[$i]}"
         len=${#temp}
-        [[ $temp == ${dir:0:len} ]] && unset dirsRecursive[$i]
+        [[ $temp == ${dir:0:len} ]] && { dirsRecursive[$i]="" ; (($DEBUG >= 2)) && echo "deleted dirsRecursive:$temp " ;}
     done
 fi
 }
@@ -224,6 +261,7 @@ while true; do
             ;;
 
         "-v"|"--verbose")
+            [[ $DEBUG = 2 ]] && DEBUG=3
             [[ $DEBUG = 1 ]] && DEBUG=2
             [[ $DEBUG = 0 && $verbose = true ]] && DEBUG=1
             verbose=true
@@ -327,7 +365,7 @@ while (( $# > 0 )); do
     if [[ -z $current && $force == false ]]; then  
         EXITCODE=1; 
         STDOUT="$software: cannot remove '$current': No such file or directory";
-        showErrors "$current"
+        showErrors "$current" false
     else
         #end realpath --relative-base
         CURRENT_ARG="$current"
