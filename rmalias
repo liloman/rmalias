@@ -18,9 +18,9 @@ readonly TRASH_CMD="$(which trash-put || which trash)"
 DEBUG=0
 
 #Global array for sortDirs (recursive option)
-declare -a dirsRecursive
-#File for getDirs (recursive option)
-readonly fileDirs="/tmp/.fileDirs"
+declare -A dirsRecursive
+#File with sorted dirs (recursive)
+readonly fileDirs="/tmp/.fileDirs" 
 #STDOUT from trash-put
 STDOUT=
 #exit from trash-put
@@ -41,40 +41,64 @@ emptydirs=false
 #Sort dirs by further and alphabetically
 #  ** doesn't pass through dirs without x permission as find does :(
 #shopt -s globstar 
-#For listing files
+#For checking empty dirs
 shopt -s nullglob dotglob
 
 
 #Sort dirs by modification time
 function sortDirs() {
-[[ ! -f $fileDirs ]] && return 
-local tempFile="/tmp/.listing$RANDOM"
-sort -r -k1 -k2 $fileDirs > $tempFile
+local tempFile="/tmp/.listing" 
 
-while IFS= read -r line; do
-    echo ${line#*/}
-done < $tempFile
+rm -f $tempFile
+
+#Fill $fileDirs with the unsorted dirs
+for k in "${!dirsRecursive[@]}"; do
+    #Print "time/dir"
+    echo "${dirsRecursive["$k"]}/$k">>$tempFile
+done
+
+#Sort it all!
+sort -t'/' -r -k1 -k2 $tempFile -o $fileDirs
+
+rm -f $tempFile 
 }
 
 
-#Insert dirs in dirsRecursive
+#Insert dirs in dirsRecursive by depth-traversal with modification time
 function getDirs() {
-local max=0 base="$1" tempFile="/tmp/.listing$RANDOM" filemap
+local max=0 base="$1" tempFile="/tmp/.listing" 
 local regex='find:[[:space:]][[:punct:]](.*)[[:punct:]]: Permission denied' 
 #remove trailing /
 base="${base%/}"
+(($DEBUG >= 2)) && echo "getDirs: base:$base"
 
-find "$base/" -mindepth 1 -maxdepth 1 -type d -printf '%T@\t%p\n' &>$tempFile
+#Get dirs ordered by modification time
+find "$base/" -mindepth 1 -type d -printf '%A@/%p\n' &> $tempFile
 
+(($DEBUG >= 3)) && { echo "getDirs unsorted file:" ; cat $tempFile;echo "****"; }
+
+#Dont parse error from permission denied
 while IFS= read -r line; do
-    read time cur <<< $line
-    [[ $cur =~ $regex ]] && cur="${BASH_REMATCH[1]}"
-    time=${time/./}
-    echo "$time/$cur" >> $fileDirs
-    getDirs "$cur"
+    [[ $line =~ $regex ]] && continue
+    time=${line%%/*} 
+    cur=${line#*/} 
+    dirsRecursive["$cur"]="$time"
 done < $tempFile
 
-rm $tempFile
+#Parse error from permission denied
+while IFS= read -r line; do
+    [[ ! $line =~ $regex ]] && continue
+    if [[ $line =~ $regex ]]; then 
+        cur="${BASH_REMATCH[1]}"
+        #Get parent modification time then
+        time=${dirsRecursive["${cur%/*}"]}
+        dirsRecursive["$cur"]="$time"
+    fi
+done < $tempFile
+
+dirsRecursive["$base"]="000000"
+
+rm -f $tempFile
 }
 
 function usage() {
@@ -93,17 +117,15 @@ checkValid "$dir"
 
 
 function checkValid() {
-local dir="$1"  dontPrint=false temp
+local dir="$1"  dontPrint=false isADir="$2"
 local found=false base
-(($DEBUG >= 2)) && echo "CheckValid: dir:$dir"
+(($DEBUG >= 2)) && echo "CheckValid: dir:$dir isADir:$isADir"
 
 (($DEBUG >= 3)) && set -x 
 
 #Check if dir was already deleted from dirsRecursive
 if [[  $doingRecursive == true && -d $dir ]]; then
-    for i in ${!dirsRecursive[@]}; do
-        [[ ${dirsRecursive[i]} == $dir ]] && found=true
-    done
+    [[ -n ${dirsRecursive["$dir"]} ]] && found=true
     (($DEBUG >= 2)) && echo "notDeleted: $found --> $dir"
     [[ $found == false ]] &&  return;
 fi
@@ -116,22 +138,23 @@ if [[ -d $dir ]]; then
         #Get all subdirs 
         getDirs "$dir"
         #Sort it all by modification time
+        sortDirs
+        #read dirs them
         while IFS= read -r line; do
-            dirsRecursive+=("$line")
-        done < <(sortDirs)
-        dirsRecursive+=("$dir")
-        for i in ${!dirsRecursive[@]}; do
-            base="${dirsRecursive[i]}" 
+            #Remove the time from line
+            base=${line#*/} 
             #Remove only files of each subdir (base has a trailing /)
-            for file in "$base"*; do
-                [[ ! -d $file ]] && checkValid "$file" 
+            for file in "$base"/*; do
+                [[ ! -d $file ]] &&  checkValid "$file" 
             done
             #Remove subdir when all files have been checked/deleted
-            checkValid "$base"
-        done
+            checkValid "$base" "isADir"
+        done < $fileDirs
+        (($DEBUG >= 3)) && { echo "sortDirs sorted file:" ; cat $fileDirs; }
         #Clean up for next arguments
         rm -f $fileDirs
         unset dirsRecursive
+        declare -A dirsRecursive
         doingRecursive=false
         #Dont delete arg base dir cause it's already included in dirsRecursive
         return
@@ -163,15 +186,14 @@ elif [[ ! -e $dir && ! -h $dir ]]; then
         ERROR=1
         STDOUT="$software: cannot remove '$dir': No such file or directory"
     else
-        dontPrint=true
-    fi
-#Not dirs (regular files, symlinks ...)
-else
-    #Relative file so
-    [[ ${dir:0:1} != / ]] && base="$PWD/$dir"
-    if [[ ! -w ${base%/*} || ! -x ${base%/*}  ]]; then
-        ERROR=1
-        STDOUT="$software: cannot remove '$dir': Permission denied"$'\n'
+        #without execution permision on parent it can't know if it's dir actually
+        #or even exists
+        if [[ -n $isADir ]]; then
+            ERROR=1
+            STDOUT="$software: cannot remove '$dir': Permission denied"$'\n'
+        else
+            dontPrint=true
+        fi
     fi
 fi
 
@@ -217,7 +239,7 @@ echo "$msg"
 }
 
 function showErrors() {
-local dir="$1" len temp 
+local dir="$1" len
 (($DEBUG >= 2)) && echo "showErrors ERROR=$ERROR,STDOUT=$STDOUT from ${FUNCNAME[1]}"
 
 #if first error
@@ -236,9 +258,12 @@ ERROR=0
 if [[ $doingRecursive == true ]]; then
     #Remove its parents from dirsRecursive
     for i in ${!dirsRecursive[@]}; do
-        temp="${dirsRecursive[$i]}"
-        len=${#temp}
-        [[ $temp == ${dir:0:len} ]] && { dirsRecursive[$i]="" ; (($DEBUG >= 2)) && echo "deleted dirsRecursive:$temp " ;}
+        len=${#i}
+        # $dir include $i ?"
+        if [[ $i == ${dir:0:len} ]]; then 
+            dirsRecursive["$i"]=""; 
+            (($DEBUG >= 2)) && echo "deleted from dirsRecursive:$i ";
+        fi
     done
 fi
 }
@@ -360,9 +385,6 @@ if [[ $# = 0 ]]; then
     usage
 fi
 
-
-#Let' s be sure
-rm -f $fileDirs
 
 # parse arguments
 while (( $# > 0 )); do
