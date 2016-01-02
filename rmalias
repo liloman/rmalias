@@ -116,16 +116,15 @@ checkValid "$dir"
 
 function checkValid() {
 local dir="$1"  dontPrint=false isADir="$2"
-local found=false base
+local base
 (($DEBUG >= 2)) && echo "CheckValid: dir:$dir isADir:$isADir"
 
 (($DEBUG >= 3)) && set -x 
 
 #Check if dir was already deleted from dirsRecursive
 if [[  $doingRecursive == true && -d $dir ]]; then
-    [[ -n ${dirsRecursive["$dir"]} ]] && found=true
-    (($DEBUG >= 2)) && echo "notDeleted: $found --> $dir"
-    [[ $found == false ]] &&  return;
+    [[ -z ${dirsRecursive["$dir"]} ]] && return
+    (($DEBUG >= 2)) && echo "Dir was deleted: --> $dir"
 fi
 
 #If it's a dir
@@ -159,20 +158,15 @@ if [[ -d $dir ]]; then
     else
     # elif [[ $recursive == false ]]; then 
             #Permission write on directory or execution on parent dir for dirs
-        if [[ ! -w $dir || ! -x $dir/..  ]]; then
+        if [[ ! -r $dir || ! -w $dir || ! -x $dir/..  ]]; then
             ERROR=1
-            dir=${dir%/}
-            for file in $dir/*; do
-                STDOUT+="$software: cannot remove '$file': Permission denied"$'\n'
-            done
+            STDOUT="$software: cannot remove '$dir': Permission denied"$'\n'
             # directory not empty
         elif [[ $recursive == false && $emptydirs == false ]]; then  
             ERROR=1
             STDOUT="$software: cannot remove '$dir': Is a directory"
         elif [[ $recursive == false && -n $(echo "$dir"/*) ]]; then
             ERROR=1
-            local msg="directory "
-            [[ $CURRENT_ARG = $dir ]] && msg=
             STDOUT="$software: cannot remove $msg'$dir': Directory not empty" 
         fi
     fi
@@ -187,7 +181,7 @@ elif [[ ! -e $dir && ! -h $dir ]]; then
         #or even exists
         if [[ -n $isADir ]]; then
             ERROR=1
-            STDOUT="$software: cannot remove '$dir': Permission denied"$'\n'
+            STDOUT="$software: cannot remove '${dir%/}': Permission denied"$'\n'
         else
             dontPrint=true
         fi
@@ -220,7 +214,7 @@ cmd+=" \"$dir\""
 (($DEBUG >= 1)) && echo "$software: executing $cmd"
 
 
-[[ -d $dir ]] && msg="removed directory: '${dir%/}'" || msg="removed '$dir'"
+[[ -d $dir ]] && msg="removed directory: '$dir'" || msg="removed '$dir'"
 
 STDOUT="$(eval "$cmd" 2>&1)"
 [[ $? != 0 && $force == false ]] && EXITCODE=1
@@ -261,14 +255,16 @@ ERROR=0
 
 #Recursive option
 if [[ $doingRecursive == true ]]; then
-    #Remove its parents from dirsRecursive
-    for i in ${!dirsRecursive[@]}; do
-        len=${#i}
-        # $dir include $i ?"
-        if [[ $i == ${dir:0:len} ]]; then 
-            dirsRecursive["$i"]=""; 
-            (($DEBUG >= 2)) && echo "deleted from dirsRecursive:$i ";
+    #Now remove it and its parents from dirsRecursive
+    while [[ -n $dir ]]; do
+        if [[ ${dirsRecursive["$dir"]+_} ]]; then
+            dirsRecursive["$dir"]="" 
+            # unset doesn't work?
+            # unset dirsRecursive["$dir"]
+            (($DEBUG >= 2)) && echo "deleted from dirsRecursive:$dir"
         fi
+        [[ ${dir%/*} == $dir ]] && break
+        dir=${dir%/*}
     done
 fi
 }
@@ -412,6 +408,8 @@ while (( $# > 0 )); do
     unset current CURRENT_ARG
     shift
 done
+
+(($DEBUG >= 2)) && echo "exit :$EXITCODE"
 
 exit $EXITCODE
 

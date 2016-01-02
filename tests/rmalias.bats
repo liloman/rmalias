@@ -385,9 +385,6 @@ rm -rf a/
  # ensure that "rm -rf DIR-with-many-entries" is not O(N^2)
  @test "rmalias ext3-perf.sh" {
  skip "needs strace or maybe impossible ..."
- run $r -r ''
- (( $status == 1 ))
- [[ ${lines[0]} = "rmalias: cannot remove '': No such file or directory" ]]
  }
 
  #f-1.sh of rm coreutils
@@ -511,7 +508,7 @@ rm -rf a/
  # Ensure that rm works even when run from a directory
  # for which the user has no access at all.
  @test "rmalias inaccessible.sh" {
- skip "not possible in bash?"
+ skip "DANGER cd missing... :S not possible in bash?"
  p=$(pwd)
  mkdir abs1 abs2 no-access 
  cd no-access; 
@@ -628,7 +625,6 @@ rm -rf a/
  #rm2 of rm coreutils
  # exercise another small part of remove.c
  @test "rmalias rm2.sh" {
- skip "something ..."
  mkdir -p a/0 
  mkdir -p a/1/2 b/3 
  mkdir a/2 a/3 
@@ -683,44 +679,44 @@ rm -rf a/
  #unread2 of rm coreutils
  # exercise one small part of remove.c
  @test "rmalias unread2.sh" {
- skip "wip"
  mkdir -p a/b 
  chmod u-r a
  # This should fail.
  run $r -rf a
  (( $status == 1 ))
  [[ ${lines[0]} = "rmalias: cannot remove 'a': Permission denied" ]]
+ [[ -d a ]]
  chmod u+r a
- rm -rf *
+ rm -rf a
  } 
 
 
  #unread3 of rm coreutils
  # Ensure that rm works even from an unreadable working directory.
  @test "rmalias unread3.sh" {
- skip "wip"
+ skip "bats fail to get status here ???. Needs reporting :S"
  mkdir -p a/1 b c d/2 e/3 
  t=$(pwd)
  cd c
  chmod u=x,go= .
+ msg="rmalias: cannot remove '$t/a': Permission denied"
 
  # With coreutils-5.2.1, this would get a failed assertion.
- $r -r "$t/a" "$t/b" 
+ run $r -r "$t/a" "$t/b" 
 
- # With coreutils-5.2.1, this would get the following:
+ (( $status == 1 ))
+ [[ ${lines[0]} = $msg ]]
+
+# With coreutils-5.2.1, this would get the following:
  #   rm: cannot get current directory: Permission denied
  #   rm: failed to return to initial working directory: Bad file descriptor
- run $r -r "$t/d" "$t/e" 
- (( $status == 1 ))
- [[ ${lines[0]} = "rmalias: cannot get current directory: Permission denied" ]]
- [[ ${lines[1]} = "rmalias: failed to return to initial working directory: Bad file descriptor" ]]
+ $r -r "$t/d" "$t/e" 
+
 
  [[ ! -d "$t/a" ]]
  [[ ! -d "$t/b" ]]
  [[ ! -d "$t/d" ]]
  [[ ! -d "$t/e" ]]
- chmod -Rf 0700 *
- rm -rf *
  }
 
 
@@ -734,13 +730,13 @@ rm -rf a/
  #v-slash of rm coreutils
  # avoid extra slashes in --verbose output
  @test "rmalias v-slash.sh" {
- skip "wip"
  mkdir a 
  touch a/x
  run $r --verbose -r a/// 
  (( $status == 0 ))
  [[ ${lines[0]} = "removed 'a/x'" ]]
- [[ ${lines[1]} = "removed directory 'a/'" ]]
+ # Removed trailing / :)
+ [[ ${lines[1]} = "removed directory: 'a'" ]]
  }
 
 
