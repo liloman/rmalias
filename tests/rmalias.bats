@@ -354,19 +354,18 @@ rm -rf a/
  #empty-inacc.sh of rm coreutils
  # Ensure that rm -rf removes an empty-and-inaccessible directory.
  @test "rmalias empty-inacc.sh" {
- skip "needs revision"
  mkdir -m0 inacc
  #Also exercise the different code path that's taken for a directory
  # that is empty (hence removable) and unreadable.
  mkdir -m a-r -p a/unreadable
 
  # This would fail for e.g., coreutils-5.93.
- $r -rf inacc 
- [[ -d inacc ]]
+ run $r -rf inacc 
+ [[ ! -d inacc ]]
 
  # This would fail for e.g., coreutils-5.97.
  run $r -rf a 
- [[ -d a ]]
+ [[ ! -d a ]]
  (( $status == 0 ))
  [[ ${lines[0]} = "" ]]
  }
@@ -438,7 +437,7 @@ rm -rf a/
  run $r -rf e 
  (( $status == 1 ))
  [[ ${lines[0]} = "rmalias: cannot remove 'e/slink': Permission denied" ]]
- chmod -Rf a+w *
+ chmod a+w e d  
  rm -rf *
  }
 

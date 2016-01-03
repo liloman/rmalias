@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # rmalias - rm compatible layer for trash
 
+set -u
 
 #############
 #  GLOBALS  #
@@ -8,7 +9,7 @@
 
 readonly software=${0##*/}
 readonly version="0.1"
-readonly LC_ALL=C
+readonly LANG=C
 readonly RM_CMD="$(which rm)"
 [[ -z $RM_CMD ]] && { echo "$software: command 'rm' was not found." >&2; exit 1; }
 # get path of trash.It depends on the installed version of the trash-cli package
@@ -25,6 +26,8 @@ STDOUT=
 ERROR=0
 #default exit
 EXITCODE=0
+#Current dir processing
+CURRENT_DIR=
 #Current arg processing
 CURRENT_ARG=
 # default option values
@@ -68,10 +71,16 @@ local max=0 base="$1" tempFile="/tmp/.listing"  cur time
 local regex='find:[[:space:]][[:punct:]](.*)[[:punct:]]: Permission denied' 
 #remove trailing /
 base="${base%/}"
+
 (($DEBUG >= 2)) && echo "getDirs: base:$base"
 
 #Get dirs ordered by modification time
 find "$base/" -mindepth 1 -type d -printf '%A@/%p\n' &> $tempFile
+if [[ ! -r $base  ]]; then
+    > $tempFile
+fi
+
+dirsRecursive["$base"]="000000"
 
 (($DEBUG >= 3)) && { echo "getDirs unsorted file:" ; cat $tempFile;echo "****"; }
 
@@ -83,18 +92,18 @@ while IFS= read -r line; do
     dirsRecursive["$cur"]="$time"
 done < $tempFile
 
-#Parse error from permission denied
+#Parse error from permission denied now
 while IFS= read -r line; do
     [[ ! $line =~ $regex ]] && continue
     if [[ $line =~ $regex ]]; then 
         cur="${BASH_REMATCH[1]}"
+        time=${dirsRecursive["${cur%/*}"]}
         #Get parent modification time then
         time=${dirsRecursive["${cur%/*}"]}
         dirsRecursive["$cur"]="$time"
     fi
 done < $tempFile
 
-dirsRecursive["$base"]="000000"
 
 rm -f $tempFile
 }
@@ -110,7 +119,7 @@ local dir="$1"
 
 # [[ -z $dir && $force == false ]] && { EXITCODE=1; echo "$software: cannot remove '$dir': No such file or directory"; return ; }
 
-checkValid "$dir"
+checkValid "$dir" "notKnow"
 }
 
 
@@ -142,7 +151,7 @@ if [[ -d $dir ]]; then
             base=${line#*/} 
             #Remove only files of each subdir (base has a trailing /)
             for file in "$base"/*; do
-                [[ ! -d $file ]] &&  checkValid "$file" 
+                [[ ! -d $file ]] &&  checkValid "$file" "notKnow"
             done
             #Remove subdir when all files have been checked/deleted
             checkValid "$base" "isADir"
@@ -157,20 +166,25 @@ if [[ -d $dir ]]; then
     # Not recursive or doingRecursive
     else
     # elif [[ $recursive == false ]]; then 
-            #Permission write on directory or execution on parent dir for dirs
+            #Permission read/write on directory or execution on parent dir for dirs
         if [[ ! -r $dir || ! -w $dir || ! -x $dir/..  ]]; then
-            ERROR=1
-            STDOUT="$software: cannot remove '$dir': Permission denied"$'\n'
+            #It must be possible to delete any empty dir (see empty-inacc.sh test)
+             if [[  -z $(echo "$dir"/*) ]] && [[ $CURRENT_ARG != $dir || ! -w $dir ]]; then
+                 chmod u+w $dir
+             else
+                ERROR=1
+                STDOUT="$software: cannot remove '$dir': Permission denied"$'\n'
+             fi
             # directory not empty
         elif [[ $recursive == false && $emptydirs == false ]]; then  
             ERROR=1
             STDOUT="$software: cannot remove '$dir': Is a directory"
         elif [[ $recursive == false && -n $(echo "$dir"/*) ]]; then
             ERROR=1
-            STDOUT="$software: cannot remove $msg'$dir': Directory not empty" 
+            STDOUT="$software: cannot remove '$dir': Directory not empty" 
         fi
     fi
-#if it doesn't exist and not a broken symlink
+    #if it doesn't exist and not a broken symlink then not enough permissions...
 elif [[ ! -e $dir && ! -h $dir ]]; then  
     # No such file or directory
     if [[ $force == false ]]; then
@@ -179,7 +193,7 @@ elif [[ ! -e $dir && ! -h $dir ]]; then
     else
         #without execution permision on parent it can't know if it's dir actually
         #or even exists
-        if [[ -n $isADir ]]; then
+        if [[ $isADir != "notKnow" ]]; then
             ERROR=1
             STDOUT="$software: cannot remove '${dir%/}': Permission denied"$'\n'
         else
@@ -391,9 +405,6 @@ fi
 while (( $# > 0 )); do
     #Global array for sortDirs (recursive option)
     declare -A dirsRecursive
-    # Uncomment for coreutils > 8.13 (Ubuntu > Precise)
-    # local dir="$(realpath -se --relative-base="$PWD" "$1")" 
-    # realpath relative-base in bash
     current="$(realpath -s "$1" 2>/dev/null)" len="${#PWD}" 
     [[ ${current:0:len} == $PWD ]] && current="${current/$PWD\//}"
     if [[ -z $current && $force == false ]]; then  
@@ -401,11 +412,11 @@ while (( $# > 0 )); do
         STDOUT="$software: cannot remove '$current': No such file or directory";
         showErrors "$current" false
     else
-        #end realpath --relative-base
-        CURRENT_ARG="$current"
+        CURRENT_DIR="${current%/*}"
+        CURRENT_ARG="$1"
         deletedir "$current"
     fi
-    unset current CURRENT_ARG
+    unset current CURRENT_DIR
     shift
 done
 
