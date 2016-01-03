@@ -231,12 +231,15 @@ rm -rf a/
  }
 
 
- #d-3.sh of rm coreutils
- # Ensure that 'rm -d -i dir' (i.e., without --recursive) gives a prompt and
-  # then deletes the directory if it is empty
- @test "rmalias d-3.sh" {
- skip "Needs -i option "
- }
+#d-3.sh of rm coreutils
+# Ensure that 'rm -d -i dir' (i.e., without --recursive) gives a prompt and
+# then deletes the directory if it is empty
+@test "rmalias d-3.sh" {
+mkdir d 
+run rmalias -idv d <<< $'y'
+(( $status == 0 ))
+[[ ${lines[0]} = "rmalias: remove directory 'd'? removed directory: 'd'" ]]
+}
 
  #dangling-symlink.sh of rm coreutils
  # rm should not prompt before removing a dangling symlink.
@@ -471,16 +474,34 @@ rm -rf a/
  }
 
  #i-1.sh of rm coreutils
- # Test rm -i
+ # Test "rm -i"
  @test "rmalias i-1.sh" {
- skip "Needs -i option  "
+ t=t
+ mkdir -p $t
+ echo > $t/a 
+ [[ -f $t/a ]]
+ 
+ echo y > $t/in-y
+ echo n > $t/in-n
+ 
+ $r -i $t/a < $t/in-n 
+ # The file should not have been removed.
+ [[ -f $t/a ]]
+ 
+ $r -i $t/a < $t/in-y 
+ # The file should have been removed this time.
+ [[ ! -f $t/a ]]
+ 
+ rm -rf $t
  }
 
  #i-never.sh of rm coreutils
  # Ensure that rm --interactive=never works does not prompt, even for
  # an unwritable file.
  @test "rmalias i-never.sh" {
- skip "Needs -i option  "
+ touch f 
+ chmod 0 f
+ $r --interactive=never f 
  }
 
  #i-no-r.sh of rm coreutils
@@ -488,7 +509,15 @@ rm -rf a/
  # recurse into directory DIR.  rm -i (without -r) must fail in that case.
  # Fixed in coreutils-4.5.2.
  @test "rmalias i-no-r.sh" {
- skip "Needs -i option  "
+ mkdir dir 
+
+ # This must fail.
+ run $r -i dir   
+ (( $status == 1 ))
+ [[ ${lines[0]} = "rmalias: cannot remove 'dir': Is a directory" ]]
+
+ # The directory must remain.
+ [[ -d dir ]]
  }
 
 
@@ -522,7 +551,64 @@ rm -rf a/
  #interactive-always.sh of rm coreutils
  # Test the --interactive[=WHEN] changes added to coreutils 6.0
  @test "rmalias interactive-always.sh" {
- skip "Needs -i option  "
+ skip "wip "
+ touch file1-1 file1-2 file2-1 file2-2 file3-1 file3-2 file4-1 file4-2 
+   
+# If asked, answer no to first question, then yes to second.
+echo 'n
+y' > in 
+
+# The prompt has a trailing space, and no newline, so an extra
+# 'echo .' is inserted after each rm to make it obvious what was asked.
+ run $r -R --interactive file1-* < in 
+ (( $status == 0 ))
+ [[ ${lines[0]} = "rmalias: remove regular file 'file1-1'? rmalias: remove regular file 'file1-2'?" ]]
+ [[ -f file1-1 ]] 
+ [[ ! -f file1-2 ]] 
+ 
+ run $r -R --interactive=never file2-* < in 
+ (( $status == 0 ))
+ [[ ! -f file2-1 ]]
+ [[ ! -f file2-2 ]]
+  
+ run $r -R --interactive=once file3-* < in 
+ (( $status == 0 ))
+ [[ ${lines[0]} = "rmalias: remove 2 arguments recursively?" ]]
+ [[ -f file3-1 ]]
+ [[ -f file3-2 ]]
+
+ run $r -R --interactive=always file4-* < in
+ [[ ${lines[0]} = "rmalias: remove regular empty file 'file4-1'? rm: remove regular empty file 'file4-2'?" ]]
+ [[ -f file4-1 ]] 
+ [[ ! -f file4-2 ]] 
+
+ run $r -R --interactive=once -f file1-* < in 
+ (( $status == 0 ))
+ [[ ${lines[0]} = "" ]]
+ [[ -f file1-1 ]] 
+
+
+#  echo '--interactive overrides -f' >> err 
+#  rm -R -f --interactive=once file4-* < in >> out 2>> err 
+#  echo . >> err 
+#  test -f file4-1 
+#
+#  cat <<\EOF > expout 
+#  EOF
+#  sed 's/@remove_empty/rm: remove regular empty file/g' <<\EOF > experr || fail=1
+#  no WHEN
+#  @remove_empty 'file1-1'? @remove_empty 'file1-2'? .
+#  WHEN=never
+#  .
+#  WHEN=once
+#  rm: remove 2 arguments recursively? .
+#  WHEN=always
+#  @remove_empty 'file4-1'? @remove_empty 'file4-2'? .
+#  -f overrides --interactive
+#  .
+#  --interactive overrides -f
+#  rm: remove 1 argument recursively? .
+#  EOF
  }
 
  #ir-1 of rm coreutils
@@ -634,7 +720,7 @@ rm -rf a/
  # Both of these should fail.
  run $r -rf a b 
  (( $status == 1 ))
- # Different output from tests... ¿?
+ # linux == solaris in tests??
  [[ ${lines[0]} = "rmalias: cannot remove 'a/1/2': Permission denied" ]]
  [[ ${lines[1]} = "rmalias: cannot remove 'b/3': Permission denied" ]]
 
@@ -706,7 +792,7 @@ rm -rf a/
  (( $status == 1 ))
  [[ ${lines[0]} = $msg ]]
 
-# With coreutils-5.2.1, this would get the following:
+ # With coreutils-5.2.1, this would get the following:
  #   rm: cannot get current directory: Permission denied
  #   rm: failed to return to initial working directory: Bad file descriptor
  $r -r "$t/d" "$t/e" 
