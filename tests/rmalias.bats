@@ -238,7 +238,8 @@ rm -rf a/
 mkdir d 
 run rmalias -idv d <<< $'y'
 (( $status == 0 ))
-[[ ${lines[0]} = "rmalias: remove directory 'd'? removed directory: 'd'" ]]
+[[ ${lines[0]} = "rmalias: remove directory 'd'? " ]]
+[[ ${lines[1]} = "removed directory: 'd'" ]]
 }
 
  #dangling-symlink.sh of rm coreutils
@@ -551,7 +552,6 @@ run rmalias -idv d <<< $'y'
  #interactive-always.sh of rm coreutils
  # Test the --interactive[=WHEN] changes added to coreutils 6.0
  @test "rmalias interactive-always.sh" {
- skip "wip "
  touch file1-1 file1-2 file2-1 file2-2 file3-1 file3-2 file4-1 file4-2 
    
 # If asked, answer no to first question, then yes to second.
@@ -562,7 +562,8 @@ y' > in
 # 'echo .' is inserted after each rm to make it obvious what was asked.
  run $r -R --interactive file1-* < in 
  (( $status == 0 ))
- [[ ${lines[0]} = "rmalias: remove regular file 'file1-1'? rmalias: remove regular file 'file1-2'?" ]]
+ [[ ${lines[0]} = "rmalias: remove regular empty file 'file1-1'? " ]]
+ [[ ${lines[1]} = "rmalias: remove regular empty file 'file1-2'? " ]]
  [[ -f file1-1 ]] 
  [[ ! -f file1-2 ]] 
  
@@ -573,49 +574,79 @@ y' > in
   
  run $r -R --interactive=once file3-* < in 
  (( $status == 0 ))
- [[ ${lines[0]} = "rmalias: remove 2 arguments recursively?" ]]
+ [[ ${lines[0]} = "rmalias: remove 2 arguments recursively? " ]]
  [[ -f file3-1 ]]
  [[ -f file3-2 ]]
 
  run $r -R --interactive=always file4-* < in
- [[ ${lines[0]} = "rmalias: remove regular empty file 'file4-1'? rm: remove regular empty file 'file4-2'?" ]]
+ (( $status == 0 ))
+ [[ ${lines[0]} = "rmalias: remove regular empty file 'file4-1'? " ]]
+ [[ ${lines[1]} = "rmalias: remove regular empty file 'file4-2'? " ]]
  [[ -f file4-1 ]] 
  [[ ! -f file4-2 ]] 
 
  run $r -R --interactive=once -f file1-* < in 
  (( $status == 0 ))
  [[ ${lines[0]} = "" ]]
- [[ -f file1-1 ]] 
+ [[ ! -f file1-1 ]] 
+ [[ ! -f file1-2 ]] 
 
-
-#  echo '--interactive overrides -f' >> err 
-#  rm -R -f --interactive=once file4-* < in >> out 2>> err 
-#  echo . >> err 
-#  test -f file4-1 
-#
-#  cat <<\EOF > expout 
-#  EOF
-#  sed 's/@remove_empty/rm: remove regular empty file/g' <<\EOF > experr || fail=1
-#  no WHEN
-#  @remove_empty 'file1-1'? @remove_empty 'file1-2'? .
-#  WHEN=never
-#  .
-#  WHEN=once
-#  rm: remove 2 arguments recursively? .
-#  WHEN=always
-#  @remove_empty 'file4-1'? @remove_empty 'file4-2'? .
-#  -f overrides --interactive
-#  .
-#  --interactive overrides -f
-#  rm: remove 1 argument recursively? .
-#  EOF
+ #the order of force is important :S
+ run $r -R -f --interactive=once file4-* < in 
+ (( $status == 0 ))
+ [[ ${lines[0]} = "rmalias: remove 1 arguments recursively? " ]]
+ [[ -f file4-1 ]]
  }
+
 
  #ir-1 of rm coreutils
  # Test rm ir
  @test "rmalias ir-1.sh" {
- skip "Needs -i option  "
- }
+
+t=t
+mkdir -p $t $t/a $t/b $t/c 
+> $t/a/a
+> $t/b/bb
+> $t/c/cc
+
+echo 'yyyyyyyynnn' > in
+
+# Remove all but one of a, b, c -- I doubt that this test can portably
+# determine which one was removed based on order of dir entries.
+# This is a good argument for switching to a dejagnu-style test suite.
+run $r --verbose -i -r $t < in
+ (( $status == 0 ))
+ [[ ${lines[0]} = "rmalias: descend into directory 't'? " ]]
+ [[ ${lines[1]} = "rmalias: descend into directory 't/c'? " ]]
+ [[ ${lines[2]} = "rmalias: remove regular empty file 't/c/cc'? " ]]
+ [[ ${lines[3]} = "removed 't/c/cc'" ]]
+ [[ ${lines[4]} = "rmalias: remove directory 't/c'? " ]]
+ [[ ${lines[5]} = "removed directory: 't/c'" ]]
+ [[ ${lines[6]} = "rmalias: descend into directory 't/b'? " ]]
+ [[ ${lines[7]} = "rmalias: remove regular empty file 't/b/bb'? " ]]
+ [[ ${lines[8]} = "removed 't/b/bb'" ]]
+ [[ ${lines[9]} = "rmalias: remove directory 't/b'? " ]]
+ [[ ${lines[10]} = "removed directory: 't/b'" ]]
+ [[ ${lines[11]} = "rmalias: descend into directory 't/a'? " ]]
+ [[ ${lines[12]} = "rmalias: remove regular empty file 't/a/a'? " ]]
+ [[ ${lines[13]} = "rmalias: remove directory 't/a'? " ]]
+ [[ ${lines[14]} = "rmalias: descend into directory 't'? " ]]
+    # Exit from rm  (all together mixing stdout with stderr) 
+    #  [[ ${lines[0]} = "rmalias: descend into directory 't'? rmalias: descend into directory 't/c'? rmalias: remove regular empty file 't/c/cc'? rmalias: remove directory 't/c'? rmalias: descend into directory 't/b'? rmalias: remove regular empty file 't/b/bb'? rmalias: remove directory 't/b'? rmalias: descend into directory 't/a'? rmalias: remove regular empty file 't/a/a'? rmalias: remove directory 't/a'? rmalias: remove directory 't'? removed 't/c/cc'" ]]
+    #  [[ ${lines[1]} = "removed directory: 't/c'" ]]
+    #  [[ ${lines[2]} = "removed 't/b/bb'" ]]
+    #  [[ ${lines[3]} = "removed directory: 't/b'" ]]
+
+ [[ -d $t ]]
+
+# There should be only one directory left.
+case $(echo $t/*) in
+  $t/[abc]) true ;;
+  *) false ;;
+esac
+
+
+}
 
  #isatty of rm coreutils
  # Make sure 'chown 0 f; rm f' prompts before removing f.
@@ -738,8 +769,32 @@ y' > in
  #rm3 of rm coreutils
  # exercise another small part of remove.c
  @test "rmalias rm3.sh" {
- skip "Needs -i option  "
- }
+mkdir -p z
+cd z 
+touch empty empty-u
+echo not-empty > fu
+ln -s empty-f slink
+ln -s . slinkdot
+mkdir d du 
+chmod u-w fu du empty-u 
+cd ..
+
+echo 'yyyyyyyyy' > in
+
+# Both of these should fail.
+run rmalias -ir z < in 
+ (( $status == 0 ))
+ [[ ${lines[0]} = "rm: descend into directory 'z'? " ]]
+ [[ ${lines[1]} = "rm: remove write-protected directory 'z/du'? " ]]
+ [[ ${lines[2]} = "rm: remove directory 'z/d'? " ]]
+ [[ ${lines[3]} = "rm: remove symbolic link 'z/slinkdot'? " ]]
+ [[ ${lines[4]} = "rm: remove symbolic link 'z/slink'? " ]]
+ [[ ${lines[5]} = "rm: remove write-protected regular file 'z/fu'? " ]]
+ [[ ${lines[6]} = "rm: remove write-protected regular empty file 'z/empty-u'? " ]]
+ [[ ${lines[7]} = "rm: remove regular empty file 'z/empty'? " ]]
+ [[ ${lines[8]} = "rm: remove directory 'z'? " ]]
+ [[ -d z ]]
+}
 
 
  #rm4 of rm coreutils

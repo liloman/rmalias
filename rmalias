@@ -28,8 +28,8 @@ ERROR=0
 EXITCODE=0
 #Current dir processing
 CURRENT_DIR=
-#Current arg processing
-CURRENT_ARG=
+#Current n args processing
+NARGS=
 # default option values
 parents=false             
 verbose=false            
@@ -38,6 +38,7 @@ recursive=false
 doingRecursive=false
 emptydirs=false            
 interactive=
+once=
 
 #For older getDirs
 #Sort dirs by further and alphabetically
@@ -115,7 +116,7 @@ exit 1
 }
 
 function deletedir() {
-local dir="$1" answer
+local dir="$1" 
 (($DEBUG >= 2)) && echo "deletedir: $dir"
 
 checkValid "$dir" "dir"
@@ -124,7 +125,7 @@ checkValid "$dir" "dir"
 
 function checkValid() {
 local dir="$1"  dontPrint=false isAfile="$2"
-local base type
+local base type answer 
 (($DEBUG >= 2)) && echo "CheckValid: dir:$dir isAfile=$isAfile"
 
 (($DEBUG >= 3)) && set -x 
@@ -147,17 +148,29 @@ if [[ $type = "directory" ]]; then
         getDirs "$dir"
         #Sort it all by modification time
         sortDirs
+        case "$interactive" in "always"|"yes") 
+            echo -n "$software: descend into directory '$dir'? "
+            read -n 1 answer 
+            echo
+            case ${answer} in [^yY]) break ;; esac
+            ;;esac
         #read dirs them
-        while IFS= read -r line; do
-            #Remove the time from line
+        while IFS= read -u 3 -r line; do
+            #Remove modification time from the line
             base=${line#*/} 
-            #Remove only files of each subdir (base has a trailing /)
+            case "$interactive" in "always"|"yes") 
+                echo -n "$software: descend into directory '$base'? "
+                read -n 1 answer 
+                echo
+                case ${answer} in [^yY]) continue ;; esac
+                ;;esac
+            #Remove only files of each subdir (base doesn't have a trailing /)
             for file in "$base"/*; do
                 [[ ! -d $file ]] &&  checkValid "$file" "file"
             done
             #Remove subdir when all files have been checked/deleted
             checkValid "$base" "dir"
-        done < $fileDirs
+        done 3< $fileDirs
         (($DEBUG >= 3)) && { echo "sortDirs sorted file:" ; cat $fileDirs; }
         #Clean up for next arguments
         rm -f $fileDirs
@@ -201,35 +214,38 @@ fi
 
 
 (($DEBUG >= 3)) && set +x 
-[[ $ERROR == 0  && $dontPrint == false ]] && trashput "$dir" ||  showErrors "$dir" true
+[[ $ERROR == 0  && $dontPrint == false ]] && trashput "$dir" "$type" ||  showErrors "$dir" true
 }
 
 
 function trashput() {
-local dir="$1"  msg
+local dir="$1"  type="$2" msg answer 
 local cmd="$TRASH_CMD"
-(($DEBUG >= 2)) && echo "trashput:$dir"
+(($DEBUG >= 2)) && echo "trashput:$dir type:$type"
 
-if [[ -n $interactive ]]; then
-    case "$interactive" in 
-        "always"|"yes"|"once") 
-            if [[ -d $dir ]]; then echo -n "$software: remove directory '$dir'? "; read -n 1  answer
-            elif [[ -e $dir ]]; then echo -n "$software: remove regular file '$dir'? "; read -n 1  answer
+case "$interactive" in 
+    "always"|"yes") 
+        echo -n "$software: remove $type '$dir'? "
+        read -n 1  answer 
+        echo
+        case ${answer} in [^yY]) return ;; esac ;;
+    "once") 
+        if [[ $force != true ]]; then
+            if [[ -z $once ]]; then
+                echo -n "$software: remove $NARGS arguments recursively? "
+                read -n 1 once 
+                echo
             fi
-            case ${answer} in [^yY] ) return ;; esac 
-         ;;esac
-fi
-
-
+            case ${once} in [^yY]) return;; esac 
+        fi ;;
+esac
 
 [[ $verbose = true ]] && cmd+=" --verbose"
+[[ -d $dir ]] && msg="removed directory: '$dir'" || msg="removed '$dir'"
 
 cmd+=" \"$dir\""
 
 (($DEBUG >= 1)) && echo "$software: executing $cmd"
-
-
-[[ -d $dir ]] && msg="removed directory: '$dir'" || msg="removed '$dir'"
 
 STDOUT="$(eval "$cmd" 2>&1)"
 [[ $? != 0 && $force == false ]] && EXITCODE=1
@@ -300,7 +316,11 @@ while true; do
             if [ "$1" == "--interactive" ]; then
                 case "$2" in 
                     "never"|"no"|"none") interactive="never";; 
-                    "once") interactive="once";; 
+                    "once") 
+                        interactive="once"
+                        #see interactive-always.sh test
+                        [[ $force = true ]] && force=false
+                        ;; 
                     "always"|"yes") interactive="always";; 
                     "") interactive="always";; 
                     *) echo "$software: invalid argument '$2' for '--interactive'
@@ -438,7 +458,7 @@ while (( $# > 0 )); do
         showErrors "$current" false
     else
         CURRENT_DIR="${current%/*}"
-        CURRENT_ARG="$1"
+        NARGS="$#"
         deletedir "$current"
     fi
     unset current CURRENT_DIR
