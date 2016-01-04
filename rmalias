@@ -430,9 +430,9 @@ fi
 while (( $# > 0 )); do
     #Global array for sortDirs (recursive option)
     declare -A dirsRecursive
-    current="$(realpath -se "$1" 2>/dev/null)" len="${#PWD}" 
+    current="$(realpath -s "$1" 2>/dev/null)" len="${#PWD}" 
     [[ ${current:0:len} == $PWD ]] && current="${current/$PWD\//}"
-    if [[ -z $current ]]; then  
+    if [[ ! -e "$1" ]]; then  
         EXITCODE=1; 
         STDOUT="$software: cannot remove '$1': No such file or directory";
         showErrors "$current" false
