@@ -50,14 +50,15 @@ shopt -s nullglob dotglob
 
 #Sort dirs by modification time
 function sortDirs() {
-local tempFile="/tmp/.listing" 
+local tempFile="/tmp/.listing" dir="$1"
 
 rm -f $tempFile
+> $tempFile
 
 #Fill $fileDirs with the unsorted dirs
 for k in "${!dirsRecursive[@]}"; do
     #Print "time/dir"
-    echo "${dirsRecursive["$k"]}/$k">>$tempFile
+    [[ $dir != $k ]] && echo "${dirsRecursive["$k"]}/$k">>$tempFile
 done
 
 #Sort it all!
@@ -71,6 +72,7 @@ rm -f $tempFile
 function getDirs() {
 local max=0 base="$1" tempFile="/tmp/.listing"  cur time
 local regex='find:[[:space:]][[:punct:]](.*)[[:punct:]]: Permission denied' 
+local match='find: failed to restore initial working directory*Permission denied'
 #remove trailing /
 base="${base%/}"
 
@@ -88,7 +90,7 @@ dirsRecursive["$base"]="000000"
 
 #Dont parse error from permission denied
 while IFS= read -r line; do
-    [[ $line =~ $regex ]] && continue
+    [[ $line =~ $regex || $line = $match ]] && continue
     time=${line%%/*}
     cur="${line#*/}"
     dirsRecursive["$cur"]="$time"
@@ -96,13 +98,14 @@ done < $tempFile
 
 #Parse error from permission denied now
 while IFS= read -r line; do
-    [[ ! $line =~ $regex ]] && continue
     if [[ $line =~ $regex ]]; then 
         cur="${BASH_REMATCH[1]}"
         time=${dirsRecursive["${cur%/*}"]}
         #Get parent modification time then
         time=${dirsRecursive["${cur%/*}"]}
         dirsRecursive["$cur"]="$time"
+    elif [[ $line = $match ]]; then 
+        dirsRecursive["$PWD"]="000000"
     fi
 done < $tempFile
 
@@ -124,8 +127,8 @@ checkValid "$dir" "dir"
 
 
 function checkValid() {
-local dir="$1"  dontPrint=false isAfile="$2"
-local base type answer 
+local dir="$1"  dontPrint=false isAfile="$2" perm="" 
+local base type answer type
 (($DEBUG >= 2)) && echo "CheckValid: dir:$dir isAfile=$isAfile"
 
 (($DEBUG >= 3)) && set -x 
@@ -137,6 +140,7 @@ if [[  $doingRecursive == true  ]]; then
 fi
 
 #No way on doing it without stat, just with bash tests... :(
+#getconf PATH_MAX dir = 4096 so not pass deep-2 
 type=$(stat -c '%F' "$dir" 2>/dev/null)
 
 #If it's a dir
@@ -147,30 +151,42 @@ if [[ $type = "directory" ]]; then
         #Get all subdirs 
         getDirs "$dir"
         #Sort it all by modification time
-        sortDirs
+        sortDirs "$dir"
         case "$interactive" in "always"|"yes") 
             echo -n "$software: descend into directory '$dir'? "
             read -n 1 answer 
             echo
-            case ${answer} in [^yY]) break ;; esac
+            case ${answer} in [^yY]) return ;; esac
             ;;esac
         #read dirs them
         while IFS= read -u 3 -r line; do
             #Remove modification time from the line
             base=${line#*/} 
+            time=${line%%/*} 
             case "$interactive" in "always"|"yes") 
-                echo -n "$software: descend into directory '$base'? "
-                read -n 1 answer 
-                echo
-                case ${answer} in [^yY]) continue ;; esac
+                #not empty
+                if [[ -n $(echo "$base"/*) ]]; then
+                    echo -n "$software: descend into directory '$base'? "
+                    read -n 1 answer 
+                    echo
+                    case ${answer} in [^yY]) continue ;; esac
+                fi
                 ;;esac
+            # doesnt make the right order find needs to be used 
+            # for file in "$base"/*; do
             #Remove only files of each subdir (base doesn't have a trailing /)
-            for file in "$base"/*; do
-                [[ ! -d $file ]] &&  checkValid "$file" "file"
+            for file in $(find "$base/" -mindepth 1 -maxdepth 1 ! -type d 2>/dev/null); do 
+                checkValid "$file" "file"
             done
-            #Remove subdir when all files have been checked/deleted
+            #Remove base dir when all files have been checked/deleted
             checkValid "$base" "dir"
         done 3< $fileDirs
+        #Remove base arg dir when all files have been checked/deleted
+        for file in $(find "$dir/" -mindepth 1 -maxdepth 1 ! -type d 2>/dev/null); do 
+            checkValid "$file" "file"
+        done
+        checkValid "$dir" "dir"
+
         (($DEBUG >= 3)) && { echo "sortDirs sorted file:" ; cat $fileDirs; }
         #Clean up for next arguments
         rm -f $fileDirs
@@ -180,8 +196,17 @@ if [[ $type = "directory" ]]; then
         return
     # Not recursive or doingRecursive = true
     else
-        #Permission read/write on directory or execution on parent dir for dirs
-        if [[ ! -r $dir || ! -w $dir || ! -x $dir/..  ]]; then
+        if [[ $recursive == true || $emptydirs == true ]]; then  
+        case "$interactive" in "always"|"yes") 
+            [[ ! -w $dir ]] && perm=" write-protected" || perm=""
+            echo -n "$software: remove$perm directory '$dir'? "
+            read -n 1 answer 
+            echo
+            case ${answer} in [^yY]) return ;; esac
+            ;;esac
+        fi
+        #Permission read on directory 
+        if [[ ! -r $dir ]]; then
             #It must be possible to delete any empty dir (see empty-inacc.sh test)
             [[ ! -r $dir ]] && chmod u+r $dir
              if [[ -n $(echo "$dir"/*) ]]; then
@@ -201,10 +226,25 @@ if [[ $type = "directory" ]]; then
     fi
     #regular file  or symlink
 elif [[ $type = regular*file || $type = *link ]]; then
-    #Write permission on directory 
-    if [[ ! -w ${dir%/*} && $interactive != never ]]; then
-        ERROR=1
-        STDOUT="$software: cannot remove '$dir': Permission denied"$'\n'
+    if [[ $interactive = always || $interactive = yes ]]; then
+        [[ ! -w $dir && $type = regular*file ]] && perm=" write-protected" || perm=""
+        echo -n "$software: remove$perm $type '$dir'? "
+        read -n 1 answer 
+        echo
+        case ${answer} in [^yY])  return ;; esac
+        #ask to remove write protected file
+    elif [[ ! -w $dir && $interactive != never && $force = false && $type = regular*file  ]]; then
+        echo -n "$software: remove write-protected $type '$dir'? "
+        read -n 1 answer 
+        echo
+        case ${answer} in [^yY])  return ;; esac
+    #Write permission on parent directory 
+    elif [[ ! -w ${dir%/*} && $interactive != never ]]; then
+        #see dangling-symlink.sh
+        if [[ ${dir%/*} !=  $dir ]]; then
+            ERROR=1
+            STDOUT="$software: cannot remove '$dir': Permission denied"$'\n'
+        fi
     fi
     #if it doesn't exist and not a broken symlink then not enough permissions...
 elif [[ -z $type && $isAfile == dir ]]; then
@@ -223,32 +263,37 @@ local dir="$1"  type="$2" msg answer
 local cmd="$TRASH_CMD"
 (($DEBUG >= 2)) && echo "trashput:$dir type:$type"
 
-case "$interactive" in 
-    "always"|"yes") 
-        echo -n "$software: remove $type '$dir'? "
-        read -n 1  answer 
-        echo
-        case ${answer} in [^yY]) return ;; esac ;;
-    "once") 
-        if [[ $force != true ]]; then
-            if [[ -z $once ]]; then
-                echo -n "$software: remove $NARGS arguments recursively? "
-                read -n 1 once 
-                echo
-            fi
-            case ${once} in [^yY]) return;; esac 
-        fi ;;
-esac
+if [[ $recursive = true ]]; then
+    case "$interactive" in 
+        # "always"|"yes") 
+        #     [[ $force = false ]] && return ;; 
+        "once") 
+            if [[ $force = false ]]; then
+                if [[ -z $once ]]; then
+                    echo -n "$software: remove $NARGS arguments recursively? "
+                    read -n 1 once 
+                    echo
+                fi
+                case ${once} in [^yY]) return;; esac 
+            fi ;;
+    esac
+fi
 
 [[ $verbose = true ]] && cmd+=" --verbose"
 [[ -d $dir ]] && msg="removed directory: '$dir'" || msg="removed '$dir'"
 
 cmd+=" \"$dir\""
 
-(($DEBUG >= 1)) && echo "$software: executing $cmd"
+# echo "$interactive y force:$force"
 
-STDOUT="$(eval "$cmd" 2>&1)"
-[[ $? != 0 && $force == false ]] && EXITCODE=1
+#Dont delete anything on recursive with no force -rfi or -ri
+# if [[ $interactive = always || $interactive = yes ]] && [[ $recursive = true && $force = false ]]; then
+#     :
+# else #-rif
+    (($DEBUG >= 1)) && echo "$software: executing $cmd"
+    STDOUT="$(eval "$cmd" 2>&1)"
+    [[ $? != 0 && $force == false ]] && EXITCODE=1
+# fi
 
 if [[ $ERROR != 0 && $verbose = true ]]; then 
     while IFS= read -r line; do
@@ -321,8 +366,12 @@ while true; do
                         #see interactive-always.sh test
                         [[ $force = true ]] && force=false
                         ;; 
-                    "always"|"yes") interactive="always";; 
-                    "") interactive="always";; 
+                    "always"|"yes") 
+                        [[ $force = true ]] && force=false
+                        interactive="always";; 
+                    "") 
+                        [[ $force = true ]] && force=false
+                        interactive="always";; 
                     *) echo "$software: invalid argument '$2' for '--interactive'
                         Valid arguments are:
                           - 'never', 'no', 'none'
@@ -333,10 +382,12 @@ while true; do
                 esac 
                 shift 2
             elif [ "$1" == "-I" ]; then
-                    interactive="once"
+                [[ $force = true ]] && force=false
+                 interactive="once"
                 shift
             else
-                    interactive="always"
+                [[ $force = true ]] && force=false
+                 interactive="always"
                 shift
             fi
             ;;
@@ -452,7 +503,8 @@ while (( $# > 0 )); do
     declare -A dirsRecursive
     current="$(realpath -s "$1" 2>/dev/null)" len="${#PWD}" 
     [[ ${current:0:len} == $PWD ]] && current="${current/$PWD\//}"
-    if [[ ! -e "$1" ]]; then  
+    #not a broken symlink (see dangling-link.sh test)
+    if [[ ! -L "$1" && ! -e "$1" ]]; then  
         EXITCODE=1; 
         STDOUT="$software: cannot remove '$1': No such file or directory";
         showErrors "$current" false

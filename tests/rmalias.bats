@@ -248,30 +248,14 @@ run rmalias -idv d <<< $'y'
  # But for fileutils-4.1.9, it would do the former and
  # for fileutils-4.1.10 the latter.
  @test "rmalias dangling-symlink.sh" {
- skip " needs undocumented ---presume-input-tty option...!"
  ln -s no-file dangle
  ln -s / symlink
 
- # Terminate any background processes
- cleanup_() { kill $pid 2>/dev/null && wait $pid; }
-
- $r ---presume-input-tty dangle symlink & pid=$!
+ run $r dangle symlink 
  # The buggy rm (fileutils-4.1.9) would hang here, waiting for input.
 
- # Wait up to 3.1s for rm to remove the files
- check_files_removed() {
-   local delay="$1"
-   local present=0
-   ls -l dangle > /dev/null 2>&1 && present=1
-   ls -l symlink > /dev/null 2>&1 && present=1
-   test $present = 1 && { sleep $delay; return 1; } || :
- }
- retry_delay_ check_files_removed .1 5 
- cleanup_
-
- (( $status == 1 ))
- [[ ${lines[0]} = "rmalias: cannot remove 'd': Directory not empty" ]]
- [[ ${lines[1]} = "rmalias: cannot remove '2': No such file or directory" ]]
+ (( $status == 0 ))
+ [[ ${lines[0]} = "" ]]
 
  }
 
@@ -306,23 +290,44 @@ run rmalias -idv d <<< $'y'
  #deep2.sh of rm coreutils
  # Ensure rm -r DIR does not prompt for very long full relative names in DIR.
  @test "rmalias deep2.sh" {
- skip " needs undocumented ---presume-input-tty option...!"
- }
+ skip "getconf PATH_MAX dir = 4096 needs some rework to change dirs (cd)"
+# ecryptfs for example uses some of the file name space
+# for encrypting filenames, so we must check dynamically.
+name_max=$(stat -f -c %l .)
+[[ $name_max > '200' ]]
+
+mkdir x
+cd x 
+
+# Construct a hierarchy containing a relative file with a long name
+perl \
+    -e 'my $d = "x" x 200; foreach my $i (1..52)' \
+    -e '  { mkdir ($d, 0700) && chdir $d or die "$!" }' 
+cd .. 
+echo n > no 
+
+run $r -r x < no 
+(( $status == 0 ))
+[[ ${lines[0]} = "" ]]
+
+# the directory must have been removed
+[[ ! -d x ]]
+
+}
 
 
  #dir-no-w.sh of rm coreutils
- # Ensure rm -r DIR does not prompt for very long full relative names in DIR.
  @test "rmalias dir-no-w.sh" {
- skip " needs undocumented ---presume-input-tty option...!"
  # rm (without -r) must give a diagnostic for any directory.
- #deep2.se It must not prompt, even if that directory is unwritable.
+ #It must not prompt, even if that directory is unwritable.
  mkdir --mode=0500 unwritable-dir
- $r ---presume-input-tty unwritable-dir
+
+ run $r unwritable-dir
  (( $status == 1 ))
  # When run by a non-privileged user we get this:
- # rm: cannot remove directory 'unwritable-dir': Is a directory
- # When run by root we get this:
  # rm: cannot remove 'unwritable-dir': Is a directory
+ # When run by root we get this:
+ # rm: cannot remove directory 'unwritable-dir': Is a directory
  [[ ${lines[0]} = "rmalias: cannot remove 'unwritable-dir': Is a directory" ]]
  chmod u+w unwritable-dir
  rm -rf unwritable-dir
@@ -332,7 +337,7 @@ run rmalias -idv d <<< $'y'
  # Ensure that 'rm dir' (i.e., without --recursive) gives a reasonable
  # diagnostic when failing.
  @test "rmalias dir-nonrecur.sh" {
- mkdir d
+ mkdir -p d
  run $r d 
  (( $status == 1 ))
  # When run by a non-privileged user we get this:
@@ -387,7 +392,7 @@ run rmalias -idv d <<< $'y'
  #ext3-perf.sh of rm coreutils
  # ensure that "rm -rf DIR-with-many-entries" is not O(N^2)
  @test "rmalias ext3-perf.sh" {
- skip "needs strace or maybe impossible ..."
+ skip "needs strace or maybe impossible? ..."
  }
 
  #f-1.sh of rm coreutils
@@ -537,15 +542,18 @@ run rmalias -idv d <<< $'y'
  # Ensure that rm works even when run from a directory
  # for which the user has no access at all.
  @test "rmalias inaccessible.sh" {
- skip "DANGER cd missing... :S not possible in bash?"
+ skip "DANGER cd missing "
  p=$(pwd)
  mkdir abs1 abs2 no-access 
- cd no-access; 
- chmod 0 . && run $r -r "$p/abs1" rel "$p/abs2"
+ cd no-access
+ chmod 0 . 
+ run $r -r "$p/abs1" rel "$p/abs2"
  (( $status == 1 ))
  [[ ${lines[0]} = "rmalias: cannot remove 'rel': Permission denied" ]]
  [[ ! -d "$p/abs1" ]]
  [[ ! -d "$p/abs2" ]]
+ chmod 777 "$p/no-access"
+ rm -d "$p/no-access"
  }
 
 
@@ -630,14 +638,9 @@ run $r --verbose -i -r $t < in
  [[ ${lines[11]} = "rmalias: descend into directory 't/a'? " ]]
  [[ ${lines[12]} = "rmalias: remove regular empty file 't/a/a'? " ]]
  [[ ${lines[13]} = "rmalias: remove directory 't/a'? " ]]
- [[ ${lines[14]} = "rmalias: descend into directory 't'? " ]]
-    # Exit from rm  (all together mixing stdout with stderr) 
-    #  [[ ${lines[0]} = "rmalias: descend into directory 't'? rmalias: descend into directory 't/c'? rmalias: remove regular empty file 't/c/cc'? rmalias: remove directory 't/c'? rmalias: descend into directory 't/b'? rmalias: remove regular empty file 't/b/bb'? rmalias: remove directory 't/b'? rmalias: descend into directory 't/a'? rmalias: remove regular empty file 't/a/a'? rmalias: remove directory 't/a'? rmalias: remove directory 't'? removed 't/c/cc'" ]]
-    #  [[ ${lines[1]} = "removed directory: 't/c'" ]]
-    #  [[ ${lines[2]} = "removed 't/b/bb'" ]]
-    #  [[ ${lines[3]} = "removed directory: 't/b'" ]]
+ [[ ${lines[14]} = "rmalias: remove directory 't'? " ]]
 
- [[ -d $t ]]
+ [[ -f $t/a/a ]]
 
 # There should be only one directory left.
 case $(echo $t/*) in
@@ -651,25 +654,23 @@ esac
  #isatty of rm coreutils
  # Make sure 'chown 0 f; rm f' prompts before removing f.
  @test "rmalias isatty.sh" {
- skip "Needs ask to remove write-protected file "
  # Terminate any background processes
- cleanup_() { kill $pid 2>/dev/null && wait $pid; }
+#  cleanup_() { kill $pid 2>/dev/null && wait $pid; }
  touch f
  chmod 0 f
- rm f & pid=$!
+ run $r f <<< 'n'
 
- # Wait a second, to give a buggy rm (as in fileutils-4.0.40)
- # enough time to remove the file.
- sleep 1
+#  # Wait a second, to give a buggy rm (as in fileutils-4.0.40)
+#  # enough time to remove the file.
+#  sleep 1
 
  # The file must still exist.
  [[ -f f ]]
 
- cleanup_
+#  cleanup_
 
- #rm: remove write-protected regular empty file 'f'? x
- # (( $status == 1 ))
- # [[ ${lines[0]} = "rmalias: cannot remove 'rel': Permission denied" ]]
+ (( $status == 0 ))
+ [[ ${lines[0]} = "rmalias: remove write-protected regular empty file 'f'? " ]]
  }
 
 
@@ -784,16 +785,16 @@ echo 'yyyyyyyyy' > in
 # Both of these should fail.
 run rmalias -ir z < in 
  (( $status == 0 ))
- [[ ${lines[0]} = "rm: descend into directory 'z'? " ]]
- [[ ${lines[1]} = "rm: remove write-protected directory 'z/du'? " ]]
- [[ ${lines[2]} = "rm: remove directory 'z/d'? " ]]
- [[ ${lines[3]} = "rm: remove symbolic link 'z/slinkdot'? " ]]
- [[ ${lines[4]} = "rm: remove symbolic link 'z/slink'? " ]]
- [[ ${lines[5]} = "rm: remove write-protected regular file 'z/fu'? " ]]
- [[ ${lines[6]} = "rm: remove write-protected regular empty file 'z/empty-u'? " ]]
- [[ ${lines[7]} = "rm: remove regular empty file 'z/empty'? " ]]
- [[ ${lines[8]} = "rm: remove directory 'z'? " ]]
- [[ -d z ]]
+ [[ ${lines[0]} = "rmalias: descend into directory 'z'? " ]]
+ [[ ${lines[1]} = "rmalias: remove write-protected directory 'z/du'? " ]]
+ [[ ${lines[2]} = "rmalias: remove directory 'z/d'? " ]]
+ [[ ${lines[3]} = "rmalias: remove symbolic link 'z/slinkdot'? " ]]
+ [[ ${lines[4]} = "rmalias: remove symbolic link 'z/slink'? " ]]
+ [[ ${lines[5]} = "rmalias: remove write-protected regular file 'z/fu'? " ]]
+ [[ ${lines[6]} = "rmalias: remove write-protected regular empty file 'z/empty-u'? " ]]
+ [[ ${lines[7]} = "rmalias: remove regular empty file 'z/empty'? " ]]
+ [[ ${lines[8]} = "rmalias: remove directory 'z'? " ]]
+ [[ ! -d z ]]
 }
 
 
@@ -811,7 +812,18 @@ run rmalias -ir z < in
  #rm5 of rm coreutils
  # a basic test of rm -ri
  @test "rmalias rm5.sh" {
- skip "Needs -i option  "
+ mkdir -p d/e 
+  echo 'yyy' > in 
+ 
+ run $r -ir d < in 
+
+ (( $status == 0 ))
+ [[ ${lines[0]} = "rmalias: descend into directory 'd'? " ]]
+ [[ ${lines[1]} = "rmalias: remove directory 'd/e'? " ]]
+ [[ ${lines[2]} = "rmalias: remove directory 'd'? " ]]
+ 
+ # Make sure it's been removed.
+ [[ ! -d d ]]
  } 
 
 
@@ -834,30 +846,30 @@ run rmalias -ir z < in
  #unread3 of rm coreutils
  # Ensure that rm works even from an unreadable working directory.
  @test "rmalias unread3.sh" {
- skip "bats fail to get status here ???. Needs reporting :S"
  mkdir -p a/1 b c d/2 e/3 
  t=$(pwd)
  cd c
  chmod u=x,go= .
- msg="rmalias: cannot remove '$t/a': Permission denied"
 
  # With coreutils-5.2.1, this would get a failed assertion.
- run $r -r "$t/a" "$t/b" 
+ run $r -r "$t/a" "$t/b"
 
- (( $status == 1 ))
- [[ ${lines[0]} = $msg ]]
-
+ (( $status == 0 ))
+ [[ ${lines[0]} = "" ]]
+ 
  # With coreutils-5.2.1, this would get the following:
  #   rm: cannot get current directory: Permission denied
  #   rm: failed to return to initial working directory: Bad file descriptor
- $r -r "$t/d" "$t/e" 
-
-
+ run $r -r "$t/d" "$t/e" 
+ (( $status == 0 ))
+ [[ ${lines[0]} = "" ]]
+ 
  [[ ! -d "$t/a" ]]
  [[ ! -d "$t/b" ]]
  [[ ! -d "$t/d" ]]
  [[ ! -d "$t/e" ]]
- }
+
+}
 
 
  #unreadable.pl of rm coreutils
