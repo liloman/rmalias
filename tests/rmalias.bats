@@ -20,7 +20,7 @@ cd /tmp/batsdir-$USER
 
 @test "Prepare everything" {
 touch file-to-not-fail-test-on-empty-dir
-chmod -Rf 0700 *
+chmod -Rf 0777 *
 rm -rf *
 }
 
@@ -263,7 +263,7 @@ run rmalias -idv d <<< $'y'
  #deep.sh of rm coreutils
  # Test rm with a deep hierarchy
  @test "rmalias deep.sh" {
- skip "Works but needs some strace  ..."
+ skip "profiling:Works but needs some strace  ..."
  umask 022
 
  k20=/k/k/k/k/k/k/k/k/k/k/k/k/k/k/k/k/k/k/k/k
@@ -290,7 +290,11 @@ run rmalias -idv d <<< $'y'
  #deep2.sh of rm coreutils
  # Ensure rm -r DIR does not prompt for very long full relative names in DIR.
  @test "rmalias deep2.sh" {
- skip "getconf PATH_MAX dir = 4096 needs some rework to change dirs (cd)"
+ # http://git.savannah.gnu.org/gitweb/?p=coreutils.git;a=blob;f=src/remove.c for
+ # solution with vfork
+ skip "rework:getconf PATH_MAX dir = 4096 needs some rework to change dirs (cd)"
+
+ 
 # ecryptfs for example uses some of the file name space
 # for encrypting filenames, so we must check dynamically.
 name_max=$(stat -f -c %l .)
@@ -392,7 +396,7 @@ run $r -r x < no
  #ext3-perf.sh of rm coreutils
  # ensure that "rm -rf DIR-with-many-entries" is not O(N^2)
  @test "rmalias ext3-perf.sh" {
- skip "needs strace or maybe impossible? ..."
+ skip "profiling:needs strace or maybe impossible? ..."
  }
 
  #f-1.sh of rm coreutils
@@ -410,16 +414,14 @@ run $r -r x < no
  # Like fail-eperm, but the failure must be for a file encountered
  # while trying to remove the containing directory with the sticky bit set.
  @test "rmalias fail-2eperm.sh" {
- skip "Needs root?"
  # The containing directory must be owned by the user who eventually runs rm.
  chown $USER .
- mkdir a
- chmod 1777 a
- touch a/b
- run $r -rf a
- (( $status == 0 ))
- [[ ${lines[0]} = "" ]]
- rm -rf a
+ sudo -u prueba mkdir -m1777 notmine
+ sudo -u prueba touch notmine/b
+ run $r -rf notmine
+ (( $status == 1 ))
+ [[ ${lines[0]} = "rmalias: cannot remove 'notmine/b': Operation not permitted" ]]
+ sudo -u prueba rm -rf notmine
  }
 
 
@@ -447,7 +449,7 @@ run $r -r x < no
  (( $status == 1 ))
  [[ ${lines[0]} = "rmalias: cannot remove 'e/slink': Permission denied" ]]
  chmod a+w e d  
- rm -rf *
+ rm -rf e d
  }
 
 
@@ -455,7 +457,17 @@ run $r -r x < no
  # Ensure that rm gives the expected diagnostic when failing to remove a file
  # owned by some other user in a directory with the sticky bit set.
  @test "rmalias fail-eperm.sh" {
- skip "Needs perl.. "
+ chmod 777 .
+ #other user
+ sudo -u prueba mkdir -m1777 stickydir
+ sudo -u prueba touch stickydir/file 
+ #main user
+ run $r -f stickydir/file
+ (( $status == 1 ))
+ [[ ${lines[0]} = "rmalias: cannot remove 'stickydir/file': Operation not permitted" ]]
+ [[ -e stickydir/file ]]
+ #other user
+ sudo -u prueba rm -rf stickydir
  }
 
 
@@ -464,7 +476,7 @@ run $r -r x < no
  # Before then, rm would fail occasionally, sometimes via
  # a failed assertion, others with a seg fault.
  @test "rmalias hash.sh" {
- skip "Takes to long... needs profiling"
+ skip "profiling:Takes too long... needs profiling"
  # Create a hierarchy with 3*26 leaf directories, each at depth 153.
  # echo "$0: creating 78 trees, each of depth 153; this will take a while..." >&2
  y=$(seq 1 150|tr -sc '\n' y|tr '\n' /)
@@ -524,6 +536,7 @@ run $r -r x < no
 
  # The directory must remain.
  [[ -d dir ]]
+ rm -d dir
  }
 
 
@@ -542,7 +555,6 @@ run $r -r x < no
  # Ensure that rm works even when run from a directory
  # for which the user has no access at all.
  @test "rmalias inaccessible.sh" {
- skip "DANGER cd missing "
  p=$(pwd)
  mkdir abs1 abs2 no-access 
  cd no-access
@@ -678,7 +690,7 @@ esac
  # In coreutils-8.12, rm,du,chmod, etc. would use too much memory
  # when processing a directory with many entries (as in > 100,000).
  @test "rmalias many-dir-entries-vs-OOM.sh" {
- skip "Needs profiling this MADNESS !!!!??? :O "
+ skip "profiling:Needs profiling this MADNESS !!!!??? :O "
  }
 
 
@@ -686,37 +698,46 @@ esac
  # With rm from coreutils-5.2.1 and earlier, 'rm -r' would mistakenly
  # give up too early under some conditions.
  @test "rmalias no-give-up.sh" {
- skip "Needs root"
- mkdir d
- touch d/f
- chown -R $USER d
-
  # Ensure that non-root can access files in root-owned ".".
- chmod go=x .
+ sudo -u prueba mkdir -m0711 no-give-up/
+ sudo -u prueba mkdir no-give-up/other
+ sudo -u prueba touch no-give-up/other/f
 
+ cd no-give-up
 
  # This must fail, since '.' is not writable by $NON_ROOT_USERNAME.
- chroot --skip-chdir --user=$USER / env PATH="$PATH" rm -rf 
+ run $r -rf other
 
- # d must remain.
- [[ -d d ]] 
+ (( $status == 1 ))
+ [[ ${lines[0]} = "rmalias: cannot remove 'other/f': Permission denied" ]]
 
- # f must have been removed.
- [[ ! -f d/f ]] 
+ cd ..
+ # f must have been removed ???
+ # [[ ! -f no-give-up/other/f ]] 
+ [[ -d no-give-up/other ]] 
 
+ sudo -u prueba rm -rf no-give-up
  }
 
 
  #one-file-system of rm coreutils
  # Demonstrate rm's new --one-file-system option.
  @test "rmalias one-file-system.sh" {
- skip "Needs --one-file-system option"
+ skip "option:Needs --one-file-system option"
  }
 
  #one-file-system2 of rm coreutils
  # Verify --one-file-system does delete within a file system
  @test "rmalias one-file-system2.sh" {
- skip "Needs --one-file-system option"
+ skip "option:Needs --one-file-system option"
+ mkdir -p a/b
+ run $r --one-file-system -rf a
+
+ (( $status == 0 ))
+ [[ ${lines[0]} = "" ]]
+
+ [[ ! -d a ]]
+
  }
 
 
@@ -763,27 +784,27 @@ esac
 
  chmod u+x b a/1
  [[ -d b/3 ]]
- rm -rf *
+ rm -rf b a
  }
 
 
  #rm3 of rm coreutils
  # exercise another small part of remove.c
  @test "rmalias rm3.sh" {
-mkdir -p z
-cd z 
-touch empty empty-u
-echo not-empty > fu
-ln -s empty-f slink
-ln -s . slinkdot
-mkdir d du 
-chmod u-w fu du empty-u 
-cd ..
+ mkdir -p z
+ cd z 
+ touch empty empty-u
+ echo not-empty > fu
+ ln -s empty-f slink
+ ln -s . slinkdot
+ mkdir d du 
+ chmod u-w fu du empty-u 
+ cd ..
 
-echo 'yyyyyyyyy' > in
+ echo 'yyyyyyyyy' > in
 
-# Both of these should fail.
-run rmalias -ir z < in 
+ # Both of these should fail.
+ run rmalias -ir z < in 
  (( $status == 0 ))
  [[ ${lines[0]} = "rmalias: descend into directory 'z'? " ]]
  [[ ${lines[1]} = "rmalias: remove write-protected directory 'z/du'? " ]]
@@ -798,30 +819,30 @@ run rmalias -ir z < in
 }
 
 
- #rm4 of rm coreutils
- # ensure that 'rm dir' fails without --recursive
- @test "rmalias rm4.sh" {
- mkdir dir 
- # This should fail.
- run $r dir 
- (( $status == 1 ))
- [[ -d dir ]]
- rm -rf *
+#rm4 of rm coreutils
+# ensure that 'rm dir' fails without --recursive
+@test "rmalias rm4.sh" {
+mkdir dir 
+# This should fail.
+run $r dir 
+(( $status == 1 ))
+[[ -d dir ]]
+rm -rf dir
  }
 
  #rm5 of rm coreutils
  # a basic test of rm -ri
  @test "rmalias rm5.sh" {
  mkdir -p d/e 
-  echo 'yyy' > in 
- 
+ echo 'yyy' > in 
+
  run $r -ir d < in 
 
  (( $status == 0 ))
  [[ ${lines[0]} = "rmalias: descend into directory 'd'? " ]]
  [[ ${lines[1]} = "rmalias: remove directory 'd/e'? " ]]
  [[ ${lines[2]} = "rmalias: remove directory 'd'? " ]]
- 
+
  # Make sure it's been removed.
  [[ ! -d d ]]
  } 
@@ -856,14 +877,14 @@ run rmalias -ir z < in
 
  (( $status == 0 ))
  [[ ${lines[0]} = "" ]]
- 
+
  # With coreutils-5.2.1, this would get the following:
  #   rm: cannot get current directory: Permission denied
  #   rm: failed to return to initial working directory: Bad file descriptor
  run $r -r "$t/d" "$t/e" 
  (( $status == 0 ))
  [[ ${lines[0]} = "" ]]
- 
+
  [[ ! -d "$t/a" ]]
  [[ ! -d "$t/b" ]]
  [[ ! -d "$t/d" ]]
@@ -872,10 +893,22 @@ run rmalias -ir z < in
 }
 
 
- #unreadable.pl of rm coreutils
- # Test "rm" and unreadable directories.
- @test "rmalias unreadable.pl" {
- skip "Needs perl.. "
+#unreadable.pl of rm coreutils
+# Test "rm" and unreadable directories.
+@test "rmalias unreadable.pl" {
+mkdir -m0100 unreadable-1
+run $r -rf unreadable-1
+ (( $status == 0 ))
+ [[ ${lines[0]} = "" ]]
+
+ mkdir -m0700 unreadable-2
+ mkdir -m0700 unreadable-2/x
+ chmod 0100 unreadable-2 
+ run $r -rf unreadable-2
+ (( $status == 1 ))
+ [[ ${lines[0]} = "rmalias: cannot remove 'unreadable-2': Permission denied" ]]
+ chmod 0777 unreadable-2/
+ rm -rf unreadable-2/
  }
 
 

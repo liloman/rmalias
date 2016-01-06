@@ -9,10 +9,10 @@
 readonly software=${0##*/}
 readonly version="0.1"
 readonly LC_ALL=C
-readonly RMDIR_CMD="$(which rmdir)"
+readonly RMDIR_CMD="$(type -P rmdir)"
 [[ -z $RMDIR_CMD ]] && { echo "$software: command 'rmdir' was not found." >&2; exit 1; }
 # get path of trash.It depends on the installed version of the trash-cli package
-readonly TRASH_CMD="$(which trash-put || which trash)"
+readonly TRASH_CMD="$(type -P trash-put || type -P trash)"
 [[ -z $TRASH_CMD ]] && { echo "$software: you need 'trash-put' for using this software." >&2; exit 1; }
 # true to get DEBUG information
 readonly DEBUG=false

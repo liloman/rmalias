@@ -10,15 +10,15 @@ set -u
 readonly software=${0##*/}
 readonly version="0.1"
 readonly LANG=C
-readonly RM_CMD="$(which rm)"
+readonly RM_CMD="$(type -P rm)"
 [[ -z $RM_CMD ]] && { echo "$software: command 'rm' was not found." >&2; exit 1; }
 # get path of trash.It depends on the installed version of the trash-cli package
-readonly TRASH_CMD="$(which trash-put || which trash)"
+readonly TRASH_CMD="$(type -P trash-put || type -P trash)"
 [[ -z $TRASH_CMD ]] && { echo "$software: you need 'trash-put' for using this software." >&2; exit 1; }
 # true to get DEBUG information
 DEBUG=0
 
-#File with sorted dirs (recursive)
+#File with sorted dirs
 readonly fileDirs="/tmp/.fileDirs" 
 #STDOUT from trash-put
 STDOUT=
@@ -37,6 +37,8 @@ force=false
 recursive=false            
 doingRecursive=false
 emptydirs=false            
+#dont run $TRASH_CMD
+simulate=false            
 interactive=
 once=
 
@@ -72,25 +74,25 @@ rm -f $tempFile
 function getDirs() {
 local max=0 base="$1" tempFile="/tmp/.listing"  cur time
 local regex='find:[[:space:]][[:punct:]](.*)[[:punct:]]: Permission denied' 
-local match='find: failed to restore initial working directory*Permission denied'
+# local match='find: failed to restore initial working directory*Permission denied'
 #remove trailing /
 base="${base%/}"
 
 (($DEBUG >= 2)) && echo "getDirs: base:$base"
 
 #Get dirs ordered by modification time
-find "$base/" -mindepth 1 -type d -printf '%A@/%p\n' &> $tempFile
+find "$base/" -mindepth 1 -type d -printf '%A@/%p\n' >$tempFile 2>$tempFile.err
 if [[ ! -r $base  ]]; then
     > $tempFile
+    > $tempFile.err
 fi
 
 dirsRecursive["$base"]="000000"
 
-(($DEBUG >= 3)) && { echo "getDirs unsorted file:" ; cat $tempFile;echo "****"; }
+(($DEBUG >= 3)) && { echo "getDirs unsorted file:"$'\n'" $(cat $tempFile*)"$'\n'" ****"; }
 
 #Dont parse error from permission denied
 while IFS= read -r line; do
-    [[ $line =~ $regex || $line = $match ]] && continue
     time=${line%%/*}
     cur="${line#*/}"
     dirsRecursive["$cur"]="$time"
@@ -104,13 +106,14 @@ while IFS= read -r line; do
         #Get parent modification time then
         time=${dirsRecursive["${cur%/*}"]}
         dirsRecursive["$cur"]="$time"
-    elif [[ $line = $match ]]; then 
-        dirsRecursive["$PWD"]="000000"
+    # elif [[ $line = $match ]]; then 
+    #     dirsRecursive["$PWD"]="000000"
     fi
-done < $tempFile
+done < $tempFile.err
 
 
 rm -f $tempFile
+rm -f $tempFile.err
 }
 
 function usage() {
@@ -205,17 +208,22 @@ if [[ $type = "directory" ]]; then
                 case ${answer} in [^yY]) return ;; esac
             fi
         fi
+
+        #Not owned and not writeable
+        if [[ ! -O $dir && ! -w $dir ]]; then
+            ERROR=1
+            STDOUT="$software: cannot remove '$dir': Permission denied"$'\n'
         #Permission read on directory 
-        if [[ ! -r $dir ]]; then
-            #It must be possible to delete any empty dir (see empty-inacc.sh test)
-            [[ ! -r $dir ]] && chmod u+r $dir
+        #It must be possible to delete any owned empty dir (see empty-inacc.sh test)
+        elif [[ ! -r $dir && -O $dir ]]; then
+            chmod u+r $dir
+            # directory not empty
              if [[ -n $(echo "$dir"/*) ]]; then
                 chmod u-r $dir
                 dontPrint=$force
                 ERROR=1
                 STDOUT="$software: cannot remove '$dir': Permission denied"$'\n'
              fi
-            # directory not empty
         elif [[ $recursive == false && $emptydirs == false ]]; then  
             ERROR=1
             STDOUT="$software: cannot remove '$dir': Is a directory"
@@ -245,6 +253,10 @@ elif [[ $type = regular*file || $type = *link ]]; then
             ERROR=1
             STDOUT="$software: cannot remove '$dir': Permission denied"$'\n'
         fi
+        #sticky bit set on dir and owned by different user
+    elif [[ -k ${dir%/*} && ! -O ${dir%/*} && $interactive != never ]]; then
+            ERROR=1
+            STDOUT="$software: cannot remove '$dir': Operation not permitted"$'\n'
     fi
     #if it doesn't exist and not a broken symlink then not enough permissions...
 elif [[ -z $type && $isAfile == dir ]]; then
@@ -281,14 +293,12 @@ cmd+=" \"$dir\""
 
 # echo "$interactive y force:$force"
 
-#Dont delete anything on recursive with no force -rfi or -ri
-# if [[ $interactive = always || $interactive = yes ]] && [[ $recursive = true && $force = false ]]; then
-#     :
-# else #-rif
-    (($DEBUG >= 1)) && echo "$software: executing $cmd"
-    STDOUT="$(eval "$cmd" 2>&1)"
-    [[ $? != 0 && $force == false ]] && EXITCODE=1
-# fi
+(($DEBUG >= 1)) && echo "$software: executing $cmd"
+
+#Don't run with simulate
+[[ $simulate == false ]] && STDOUT="$(eval "$cmd" 2>&1)"
+
+[[ $? != 0 && $force == false ]] && EXITCODE=1
 
 if [[ $ERROR != 0 && $verbose = true ]]; then 
     while IFS= read -r line; do
@@ -342,7 +352,7 @@ ERROR=0
 
 
 # use getopt to parse parameters
-if ! OPTIONS=$(getopt -n "$software" -o ivhfrRd -l "interactive::" -l "dir" -l "recursive" -l "force" -l "verbose" -l "help" -l "version" -- "$@"); then
+if ! OPTIONS=$(getopt -n "$software" -o sivhfrRd -l "interactive::" -l "dir" -l "recursive" -l "force" -l "verbose" -l "help" -l "version" -- "$@"); then
     usage
     exit 1
 fi
@@ -386,6 +396,11 @@ while true; do
 
         "-d"|"--dir")
             emptydirs=true
+            shift
+            ;;
+
+        "-s")
+            simulate=true
             shift
             ;;
 
@@ -494,13 +509,18 @@ while (( $# > 0 )); do
     #Global array for sortDirs (recursive option)
     declare -A dirsRecursive
     current="$(realpath -s "$1" 2>/dev/null)" len="${#PWD}" 
-    [[ ${current:0:len} == $PWD ]] && current="${current/$PWD\//}"
     #not a broken symlink (see dangling-link.sh test)
     if [[ ! -L "$1" && ! -e "$1" ]]; then  
         EXITCODE=1; 
-        STDOUT="$software: cannot remove '$1': No such file or directory";
-        showErrors "$current" false
+        #Write permission on parent directory even for non-existing files 
+        # ( see inaccessible.sh and empty-name.sh tests)
+        if [[ -n $1 && ! -w ${current%/*} ]]
+        then STDOUT="$software: cannot remove '$1': Permission denied"
+        else STDOUT="$software: cannot remove '$1': No such file or directory"; fi
+        showErrors "$1" false
     else
+        #set it relative to current dir
+        [[ ${current:0:len} == $PWD ]] && current="${current/$PWD\//}"
         CURRENT_DIR="${current%/*}"
         NARGS="$#"
         deletedir "$current"
