@@ -152,18 +152,18 @@ if [[ $type = "directory" ]]; then
         getDirs "$dir"
         #Sort it all by modification time
         sortDirs "$dir"
-        case "$interactive" in "always"|"yes") 
+        if [[ $interactive = @(always|yes) ]]; then
             echo -n "$software: descend into directory '$dir'? "
             read -n 1 answer 
             echo
             case ${answer} in [^yY]) return ;; esac
-            ;;esac
+        fi
         #read dirs them
         while IFS= read -u 3 -r line; do
             #Remove modification time from the line
             base=${line#*/} 
             time=${line%%/*} 
-            case "$interactive" in "always"|"yes") 
+            if [[ $interactive = @(always|yes) ]]; then
                 #not empty
                 if [[ -n $(echo "$base"/*) ]]; then
                     echo -n "$software: descend into directory '$base'? "
@@ -171,7 +171,7 @@ if [[ $type = "directory" ]]; then
                     echo
                     case ${answer} in [^yY]) continue ;; esac
                 fi
-                ;;esac
+            fi 
             # doesnt make the right order find needs to be used 
             # for file in "$base"/*; do
             #Remove only files of each subdir (base doesn't have a trailing /)
@@ -197,13 +197,13 @@ if [[ $type = "directory" ]]; then
     # Not recursive or doingRecursive = true
     else
         if [[ $recursive == true || $emptydirs == true ]]; then  
-        case "$interactive" in "always"|"yes") 
-            [[ ! -w $dir ]] && perm=" write-protected" || perm=""
-            echo -n "$software: remove$perm directory '$dir'? "
-            read -n 1 answer 
-            echo
-            case ${answer} in [^yY]) return ;; esac
-            ;;esac
+            if [[ $interactive = @(always|yes) ]]; then
+                [[ ! -w $dir ]] && perm=" write-protected" || perm=""
+                echo -n "$software: remove$perm directory '$dir'? "
+                read -n 1 answer 
+                echo
+                case ${answer} in [^yY]) return ;; esac
+            fi
         fi
         #Permission read on directory 
         if [[ ! -r $dir ]]; then
@@ -264,19 +264,14 @@ local cmd="$TRASH_CMD"
 (($DEBUG >= 2)) && echo "trashput:$dir type:$type"
 
 if [[ $recursive = true ]]; then
-    case "$interactive" in 
-        # "always"|"yes") 
-        #     [[ $force = false ]] && return ;; 
-        "once") 
-            if [[ $force = false ]]; then
-                if [[ -z $once ]]; then
-                    echo -n "$software: remove $NARGS arguments recursively? "
-                    read -n 1 once 
-                    echo
-                fi
-                case ${once} in [^yY]) return;; esac 
-            fi ;;
-    esac
+    if [[ $interactive = once &&  $force = false ]]; then
+            if [[ -z $once ]]; then
+                echo -n "$software: remove $NARGS arguments recursively? "
+                read -n 1 once 
+                echo
+            fi
+            case ${once} in [^yY]) return;; esac 
+    fi
 fi
 
 [[ $verbose = true ]] && cmd+=" --verbose"
@@ -358,19 +353,18 @@ eval set -- "${OPTIONS}"
 while true; do
     case "$1" in
         "-i"|"--interactive")
+            # force must be passed after -i to be effective
+            force=false
             if [ "$1" == "--interactive" ]; then
                 case "$2" in 
                     "never"|"no"|"none") interactive="never";; 
                     "once") 
                         interactive="once"
                         #see interactive-always.sh test
-                        [[ $force = true ]] && force=false
                         ;; 
                     "always"|"yes") 
-                        [[ $force = true ]] && force=false
                         interactive="always";; 
                     "") 
-                        [[ $force = true ]] && force=false
                         interactive="always";; 
                     *) echo "$software: invalid argument '$2' for '--interactive'
                         Valid arguments are:
@@ -382,11 +376,9 @@ while true; do
                 esac 
                 shift 2
             elif [ "$1" == "-I" ]; then
-                [[ $force = true ]] && force=false
                  interactive="once"
                 shift
             else
-                [[ $force = true ]] && force=false
                  interactive="always"
                 shift
             fi
