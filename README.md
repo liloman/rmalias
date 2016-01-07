@@ -2,6 +2,7 @@ rmalias
 =======
 
 Travis: [![Build Status](https://travis-ci.org/liloman/rmalias.svg?branch=master)](https://travis-ci.org/liloman/rmalias)
+Coverage: [![Coverage Status](https://coveralls.io/repos/liloman/rmalias/badge.svg?branch=master&service=github)](https://coveralls.io/github/liloman/rmalias?branch=master)
 
 #Why?
 
