@@ -415,6 +415,7 @@ run $r -r x < no
  # while trying to remove the containing directory with the sticky bit set.
  @test "rmalias fail-2eperm.sh" {
  # The containing directory must be owned by the user who eventually runs rm.
+
  sudo -u prueba mkdir -m1777 notmine
  sudo -u prueba touch notmine/b
  chown $USER .
