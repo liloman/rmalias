@@ -11,7 +11,7 @@ before_install:
 
 # command to run tests
 script:
-  - bats tests/
+    - bats --tap tests/
 
 notifications:
   email:
