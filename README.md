@@ -96,4 +96,14 @@ $ trash-list
 
 $ trash-rm \*.o
 
+#TODO
+
+##General
+- [ ] You can't trash the trashcan
+- [ ] Handle ERRORs from trash-put like not trashcan ...
+- [ ] Patch PRoot to get it working with multiusers for travis and test it on several distros (Fedora and Ubuntu until now)
+
+##rmalias
+- [ ] Finish -I 
+
 
